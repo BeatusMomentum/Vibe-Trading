@@ -439,6 +439,7 @@ def _provider_key_env(provider: str | None) -> str | None:
         "nvidia-nim": "NVIDIA_API_KEY",
         "gemini": "GEMINI_API_KEY",
         "groq": "GROQ_API_KEY",
+        "novita": "NOVITA_API_KEY",
         "dashscope": "DASHSCOPE_API_KEY",
         "qwen": "DASHSCOPE_API_KEY",
         "zhipu": "ZHIPU_API_KEY",
@@ -464,6 +465,7 @@ def _provider_base_env(provider: str | None) -> str | None:
         "nvidia-nim": "NVIDIA_BASE_URL",
         "gemini": "GEMINI_BASE_URL",
         "groq": "GROQ_BASE_URL",
+        "novita": "NOVITA_BASE_URL",
         "dashscope": "DASHSCOPE_BASE_URL",
         "qwen": "DASHSCOPE_BASE_URL",
         "zhipu": "ZHIPU_BASE_URL",
@@ -2903,8 +2905,12 @@ def cmd_upload(file_path: str) -> None:
 def cmd_provider_login(provider: str) -> int:
     """Authenticate OAuth-backed LLM providers."""
     normalized = provider.strip().lower().replace("_", "-")
+    if normalized in {"copilot", "github-copilot"}:
+        return _login_copilot()
     if normalized != "openai-codex":
-        console.print("[red]Unknown OAuth provider.[/red] Supported: openai-codex")
+        console.print(
+            "[red]Unknown OAuth provider.[/red] Supported: openai-codex, copilot"
+        )
         return EXIT_USAGE_ERROR
     try:
         from src.providers.openai_codex import login_openai_codex
@@ -2935,6 +2941,25 @@ def cmd_provider_login(provider: str) -> int:
     except Exception as exc:
         console.print(f"[red]Authentication error:[/red] {exc}")
         return EXIT_RUN_FAILED
+
+
+def _login_copilot() -> int:
+    """Report supported GitHub Copilot SDK authentication options."""
+    from src.providers.copilot_auth import get_copilot_auth_status
+
+    authenticated, status = get_copilot_auth_status()
+    if authenticated:
+        console.print(
+            f"[green]Already authenticated with GitHub Copilot[/green]  [dim]{status}[/dim]"
+        )
+        return EXIT_SUCCESS
+
+    console.print(
+        "[yellow]No GitHub credential found.[/yellow]\n"
+        "Run [bold]copilot[/bold] and sign in, run [bold]gh auth login[/bold], "
+        "or set [bold]COPILOT_GITHUB_TOKEN[/bold]."
+    )
+    return EXIT_RUN_FAILED
 
 
 # ---------------------------------------------------------------------------
@@ -4210,6 +4235,21 @@ def _print_connector_account_mapping(
     return EXIT_SUCCESS
 
 
+def _enum_text(value: Any) -> str:
+    """Render ``OrderSide.BUY``-style enum reprs as ``BUY``.
+
+    broker_sdk connectors stringify SDK enums, so the raw repr reaches the
+    table. Only strips when the prefix looks like a CamelCase class name (it
+    must contain a lowercase letter), so ticker symbols such as ``BRK.B`` and
+    decimal values are left alone.
+    """
+    text = str(value or "")
+    match = re.fullmatch(r"([A-Z][A-Za-z0-9_]*)\.([A-Z][A-Z0-9_]*)", text)
+    if match and any(ch.islower() for ch in match.group(1)):
+        return match.group(2)
+    return text
+
+
 def _print_connector_account(result: dict[str, Any]) -> int:
     accounts = ", ".join(result.get("accounts", [])) or "(none)"
     rows = result.get("summary", [])
@@ -4414,15 +4454,18 @@ def cmd_connector_orders(
     for row in orders:
         contract = row.get("contract") or {}
         order = row.get("order") or row
-        order_status = row.get("status") or {}
+        # IBKR nests status as ``{"status": {"status": ...}}``; broker_sdk
+        # connectors (Alpaca, …) return it as a plain string on the flat row.
+        raw_status = row.get("status")
+        status_text = raw_status.get("status") if isinstance(raw_status, dict) else raw_status
         table.add_row(
             str(order.get("account") or ""),
-            str(contract.get("local_symbol") or contract.get("symbol") or ""),
-            str(order.get("action") or ""),
-            str(order.get("order_type") or ""),
-            str(order.get("total_quantity") or ""),
+            str(contract.get("local_symbol") or contract.get("symbol") or order.get("symbol") or ""),
+            _enum_text(order.get("action") or order.get("side") or ""),
+            _enum_text(order.get("order_type") or ""),
+            str(order.get("total_quantity") or order.get("quantity") or ""),
             str(order.get("limit_price") or ""),
-            str(order_status.get("status") or ""),
+            _enum_text(status_text or ""),
         )
     console.print(table)
     return EXIT_SUCCESS
@@ -4988,6 +5031,10 @@ def _build_parser() -> argparse.ArgumentParser:
     from cli.commands.research_playbook import add_subparser as _add_playbook_subparser
     _add_playbook_subparser(subparsers)
 
+    # Strategy-evidence cache refresh (manifest-driven rebuild)
+    from cli.commands.strategy_evidence import add_subparser as _add_strategy_evidence_subparser
+    _add_strategy_evidence_subparser(subparsers)
+
     return parser
 
 
@@ -5171,6 +5218,16 @@ _PROVIDER_CHOICES: list[dict[str, str | None]] = [
         "key_placeholder": "api-key...",
     },
     {
+        "label": "Novita AI",
+        "provider": "novita",
+        "key_env": "NOVITA_API_KEY",
+        "base_env": "NOVITA_BASE_URL",
+        "base_url": "https://api.novita.ai/openai",
+        "model": "moonshotai/kimi-k3",
+        "key_prefix": "sk_",
+        "key_placeholder": "sk_...",
+    },
+    {
         "label": "iFlytek Spark",
         "provider": "spark",
         "key_env": "SPARK_API_KEY",
@@ -5240,6 +5297,8 @@ def _render_env_content(config: dict[str, str]) -> str:
         "GEMINI_BASE_URL",
         "GROQ_API_KEY",
         "GROQ_BASE_URL",
+        "NOVITA_API_KEY",
+        "NOVITA_BASE_URL",
         "DASHSCOPE_API_KEY",
         "DASHSCOPE_BASE_URL",
         "ZHIPU_API_KEY",
@@ -5864,7 +5923,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "list":
         return _coerce_exit_code(cmd_list(args.list_limit))
     if args.command == "show":
-        return _coerce_exit_code(cmd_show(args.show))
+        return _coerce_exit_code(cmd_show(args.run_id))
     if args.command == "chat":
         return _coerce_exit_code(cmd_interactive(args.chat_max_iter))
     if args.command == "update":
@@ -5880,6 +5939,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "playbook":
         from cli.commands.research_playbook import dispatch as _playbook_dispatch
         return _coerce_exit_code(_playbook_dispatch(args))
+    if args.command == "strategy-evidence":
+        from cli.commands.strategy_evidence import dispatch as _strategy_evidence_dispatch
+        return _coerce_exit_code(_strategy_evidence_dispatch(args))
     if args.command == "connector":
         return _coerce_exit_code(_dispatch_connector(args))
     if args.command == "memory":

@@ -647,7 +647,8 @@ class TestKimiTemperature:
 class TestReasoningEffortPassthrough:
     """LANGCHAIN_REASONING_EFFORT is forwarded as extra_body.reasoning.effort
     to the underlying OpenAI-compatible client. Used for OpenRouter-style
-    relays that require opt-in to enable thinking."""
+    relays that require opt-in to enable thinking when Chat Completions is
+    selected explicitly."""
 
     def _capture(self, env: dict[str, str]) -> dict:
         import src.providers.llm as llm_mod
@@ -683,6 +684,7 @@ class TestReasoningEffortPassthrough:
                 "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1",
                 "LANGCHAIN_MODEL_NAME": "moonshotai/kimi-k2-thinking",
                 "LANGCHAIN_REASONING_EFFORT": "medium",
+                "LANGCHAIN_USE_RESPONSES_API": "false",
             }
         )
         assert captured["extra_body"] == {"reasoning": {"effort": "medium"}}
@@ -695,6 +697,7 @@ class TestReasoningEffortPassthrough:
                 "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1",
                 "LANGCHAIN_MODEL_NAME": "moonshotai/kimi-k2-thinking",
                 "LANGCHAIN_REASONING_EFFORT": "HIGH",
+                "LANGCHAIN_USE_RESPONSES_API": "false",
             }
         )
         assert captured["extra_body"]["reasoning"]["effort"] == "high"

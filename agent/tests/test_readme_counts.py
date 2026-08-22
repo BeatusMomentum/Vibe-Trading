@@ -48,6 +48,7 @@ READMES = (
     "README_ja.md",
     "README_ko.md",
     "README_ar.md",
+    "README_es.md",
 )
 
 # Feature badges in the order they appear in every README. Each entry is the
@@ -439,7 +440,7 @@ def test_the_skill_category_table_matches_the_frontmatter() -> None:
     assert sum(int(n) for _, n in rows) == _bundled_skill_count()
 
 
-def test_all_five_readmes_agree_with_each_other() -> None:
+def test_all_readmes_agree_with_each_other() -> None:
     """No locale may drift from the others, whatever the code count is."""
     per_file = {name: [_numbers(b) for b in _badges(_read(name))] for name in READMES}
     counts = _counts()

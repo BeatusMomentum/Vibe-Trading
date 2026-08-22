@@ -193,6 +193,8 @@ from src.api.runs_routes import (  # noqa: F401, E402
     _load_csv_to_dict,
     _build_response_from_run_dir,
 )
+from src.api.attribution_routes import register_attribution_routes  # noqa: E402
+register_attribution_routes(app)
 
 # --- Sessions ---
 from src.api.sessions_routes import register_sessions_routes  # noqa: E402
@@ -283,6 +285,10 @@ from src.api.live_routes import (  # noqa: F401, E402
 from src.api.alpha_routes import register_alpha_routes  # noqa: E402
 register_alpha_routes(app)
 
+# --- Options analysis ---
+from src.api.options_routes import register_options_routes  # noqa: E402
+register_options_routes(app)
+
 # --- Auth helpers (SSE tickets) ---
 from src.api.auth_routes import register_auth_routes  # noqa: E402
 register_auth_routes(app)
@@ -292,13 +298,7 @@ register_auth_routes(app)
 from src.openbb_bridge import try_register_openbb_routes  # noqa: E402  # OPENBB-WORKSPACE-INTEGRATION
 try_register_openbb_routes(app)
 
-
-# ============================================================================
-# Scheduled Research Routes - defined in src/api/scheduled_routes.py
-# ============================================================================
-# Job CRUD plus the playbook-template catalogue, all auth-gated. Handlers only
-# record and expose jobs; execution is guarded by VIBE_TRADING_ENABLE_SCHEDULER.
-
+# --- Scheduled research ---
 from src.api.scheduled_routes import register_scheduled_routes  # noqa: E402
 register_scheduled_routes(app)
 

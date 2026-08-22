@@ -18,6 +18,7 @@ import copy
 import json
 import logging
 import queue
+import re
 import shutil
 import sys
 import threading
@@ -64,6 +65,10 @@ COLLAPSE_TAIL = 500
 
 TAIL_TOKEN_BUDGET = 20_000
 SUMMARY_CHUNK_CHARS = 80_000
+
+# An LLM may return a transient empty completion (no text, no tool calls);
+# retry once with a nudge before failing the run on a second consecutive one.
+MAX_CONSECUTIVE_EMPTY_RESPONSE_SKIPS = 1
 
 
 def _override(name: str):
@@ -112,6 +117,21 @@ def _tool_timeout_seconds() -> float:
         return ov
     from src.config.accessor import get_env_config
     return get_env_config().agent_tuning.vibe_trading_tool_timeout_seconds
+
+
+def _llm_timeout_seconds() -> float:
+    """Return the per-call LLM timeout in seconds (0/negative disables).
+
+    A silent provider stall otherwise hangs the ReAct loop or the
+    auto-compact summary call indefinitely - no chunk arrives, so the
+    per-chunk cancel check never runs. Bounding the call lets the run fail
+    (or degrade compaction) instead of freezing mid-task.
+    """
+    ov = _override("LLM_TIMEOUT_SECONDS")
+    if ov is not None:
+        return ov
+    from src.config.accessor import get_env_config
+    return get_env_config().agent_tuning.vibe_trading_llm_timeout_seconds
 
 
 def _goal_max_continuations() -> int:
@@ -554,6 +574,75 @@ def _is_tool_success(result: str) -> bool:
     return True
 
 
+# Provider tool-call markup that a model can emit as plain text on the
+# forced-text final iteration, where tool definitions are withheld. Releasing
+# it verbatim hands the user mojibake instead of an answer. Both DSML bar
+# spellings are covered: ASCII double bars and fullwidth double bars.
+_FORCED_TEXT_TOOL_CALL_RE = re.compile(
+    r"<\s*/?\s*(?:invoke|parameter|tool_calls|dsml)\b",
+    re.IGNORECASE,
+)
+_DSML_BAR_TOOL_CALL_RE = re.compile(
+    r"<\s*[|\u2502\uFF5C]{2}\s*(?:dsml|tool_calls|invoke)\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_tool_call_syntax(content: str) -> bool:
+    """Return whether final text still contains provider tool-call DSL.
+
+    When tool calling is unavailable, a model may nonetheless answer with its
+    native tool-call markup as prose - ``<DSML>tool_calls>``, ``<invoke
+    name=...>``, or the fullwidth-vbar mojibake of the same. Such content is
+    not an answer and must not be released to the user as one.
+    """
+    if not content:
+        return False
+    return bool(
+        _FORCED_TEXT_TOOL_CALL_RE.search(content)
+        or _DSML_BAR_TOOL_CALL_RE.search(content)
+    )
+
+
+
+
+# Task target-file detection: a user message usually names the file to
+# create or update ("update C:\\...\\plan.md"). If a run approaches its
+# iteration cap without having written that file, the loop must remind the
+# model instead of ending "answered but incomplete".
+_TARGET_PATH_RE = re.compile(
+    r"[A-Za-z]:\\[^\s\x22\x27<>|?*]+\.md\b"
+    r"|/[\w./\\-]+\.md\b"
+    r"|\b[\w./\\-]+\.md\b"
+)
+_TARGET_ACTION_RE = re.compile(
+    r"update|create|write|add|make|edit|generate|overwrite|append"
+    r"|更新|创建|写|添加|修改|生成|建立|编制",
+    re.IGNORECASE,
+)
+
+
+def _named_target_paths(text: str) -> list[Path]:
+    """Return the .md file paths named in a user message (deduped).
+
+    Both absolute Windows paths and bare or relative filenames are matched.
+    """
+    seen: set[str] = set()
+    paths: list[Path] = []
+    for match in _TARGET_PATH_RE.finditer(text or ""):
+        raw = match.group(0).strip().strip("\x22\x27")
+        try:
+            p = Path(raw)
+        except (ValueError, OSError):
+            continue
+        if p.suffix != ".md":
+            continue
+        key = str(p).casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        paths.append(p)
+    return paths
 def _normalize_tool_run_dir(args: dict[str, Any], memory_run_dir: str | None) -> dict[str, Any]:
     """Normalize ``run_dir`` in tool args to an absolute path when possible.
 
@@ -579,6 +668,37 @@ def _normalize_tool_run_dir(args: dict[str, Any], memory_run_dir: str | None) ->
     return normalized
 
 
+#: Names the backtest an archived run currently describes, and the files that
+#: archive placed there, so the next one can replace exactly its own output.
+_ARCHIVE_MANIFEST = ".archived_backtest.json"
+
+
+def _previously_archived(target: Path) -> set[str]:
+    """Return the run-relative files the previous archive copied into ``target``.
+
+    The caller deletes what this returns, and the names are read back off disk,
+    so each one is confined to ``target`` here — a manifest carrying ``..`` must
+    not become a way to delete a file elsewhere. An unreadable or malformed
+    manifest yields an empty set: the worst case is the pre-#1094 merge for one
+    turn, which beats refusing to archive a backtest the user is waiting for.
+    """
+    try:
+        payload = json.loads((target / _ARCHIVE_MANIFEST).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    files = payload.get("files") if isinstance(payload, dict) else None
+    if not isinstance(files, list):
+        return set()
+    root = target.resolve()
+    return {
+        str(name)
+        for name in files
+        if isinstance(name, str)
+        and (root / name).resolve().is_relative_to(root)
+        and (root / name).resolve() != root
+    }
+
+
 def _archive_backtest_result(result: str, active_run_dir: str | None) -> bool:
     """Copy a successful detached backtest into the active, reportable run.
 
@@ -592,6 +712,16 @@ def _archive_backtest_result(result: str, active_run_dir: str | None) -> bool:
     that invariant lives in another module and this function reads its path back
     out of a *tool result* rather than from the validated arguments.  Checking
     locally keeps a copy loop from depending on a guarantee made elsewhere.
+
+    The copy REPLACES the previous archive rather than merging with it (#1094).
+    An agent may backtest more than once in a turn, and the copy is a plain
+    merge, so a file only the earlier backtest produced used to survive
+    alongside the later one's output — one artifacts directory describing two
+    different runs, which ``/runs/{id}`` then lists as artifacts of the current
+    one.  Only files a previous archive placed here are removed, recorded in
+    :data:`_ARCHIVE_MANIFEST`; anything the active run wrote itself (notably
+    ``code/signal_engine.py``, written before ``backtest`` is called) is
+    untouched, which is why the manifest exists instead of a blanket wipe.
     """
     if not active_run_dir:
         return False
@@ -615,10 +745,23 @@ def _archive_backtest_result(result: str, active_run_dir: str | None) -> bool:
         return False
 
     target.mkdir(parents=True, exist_ok=True)
+    previously_archived = _previously_archived(target)
+    archived: list[str] = []
     for directory in ("artifacts", "code", "logs"):
         source_dir = source / directory
         if source_dir.is_dir():
             shutil.copytree(source_dir, target / directory, dirs_exist_ok=True)
+            archived += [
+                str(path.relative_to(source))
+                for path in source_dir.rglob("*")
+                if path.is_file()
+            ]
+    for stale in previously_archived - set(archived):
+        (target / stale).unlink(missing_ok=True)
+    (target / _ARCHIVE_MANIFEST).write_text(
+        json.dumps({"source_run": source.name, "files": sorted(archived)}, indent=2),
+        encoding="utf-8",
+    )
     for filename in (
         "config.json",
         "design_spec.json",
@@ -690,6 +833,9 @@ class AgentLoop:
         self._run_iteration: int = 0
         self._has_run = False
         self._grounding: GroundingLedger | None = None
+        self._released_fallback = False
+        self._released_fallback_reason: str | None = None
+        self._written_files: set[str] = set()
 
     def cancel(self) -> None:
         """Cancel the current loop.
@@ -777,6 +923,10 @@ class AgentLoop:
             self._has_run = True
         self._called_ok = set()
         self._previous_summary = ""
+        self._released_fallback = False
+        self._released_fallback_reason = None
+        self._written_files = set()
+        run_started_wall = _time.time()
 
         state_store = RunStateStore()
         RUNS_DIR.mkdir(parents=True, exist_ok=True)
@@ -836,6 +986,7 @@ class AgentLoop:
         consecutive_content_filter_count = 0
         content_filter_circuit_breaker = False
         empty_model_response_iter: int | None = None
+        consecutive_empty_responses = 0
         llm_usage_summary = _new_llm_usage_summary(self.llm)
         last_response_model: str | None = None
         goal_continuations = 0
@@ -892,15 +1043,45 @@ class AgentLoop:
                 # context as the most recent user message.
                 if iteration == wrap_up_at and 1 < iteration < self.max_iterations:
                     remaining = self.max_iterations - iteration
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            f"[SYSTEM] You have {remaining} iterations remaining out of "
-                            f"{self.max_iterations}. Please wrap up your work. "
-                            "Stop calling tools and provide your final answer as plain text. "
-                            "If you have partial results, summarize what you have so far."
-                        ),
-                    })
+                    wrap_content = (
+                        f"[SYSTEM] You have {remaining} iterations remaining out of "
+                        f"{self.max_iterations}. Wrap up your work now: finish any "
+                        "outstanding file writes or data updates that are part of your "
+                        "task FIRST, while tools are still available for a few more "
+                        "iterations. Do not start new analysis or re-verify data you "
+                        "already hold. Then provide your final answer as plain text; "
+                        "if your task was to update a file, state that it is done and where."
+                    )
+                    pending_directive = self._pending_write_directive(
+                        user_message, run_started_wall
+                    )
+                    if pending_directive:
+                        wrap_content += "\n\n" + pending_directive
+                        trace.write(
+                            {
+                                "type": "pending_write_directive",
+                                "iter": current_iter,
+                            }
+                        )
+                    messages.append({"role": "user", "content": wrap_content})
+
+                # Safety net: on the second-to-last iteration tools are still
+                # available, but the final iteration is text-only and cannot
+                # call tools. If the task names a target file that has not been
+                # written, force the write now so the run does not end
+                # "answered but incomplete".
+                if iteration == self.max_iterations - 1:
+                    pending_directive = self._pending_write_directive(
+                        user_message, run_started_wall
+                    )
+                    if pending_directive:
+                        trace.write(
+                            {
+                                "type": "pending_write_directive",
+                                "iter": current_iter,
+                            }
+                        )
+                        messages.append({"role": "system", "content": pending_directive})
 
                 # Streaming output + collect thinking text
                 thinking_chunks: List[str] = []
@@ -949,12 +1130,17 @@ class AgentLoop:
                 if is_last_iteration:
                     trace.write({"type": "forced_text_only", "iter": current_iter})
 
+                _llm_timeout_s = _llm_timeout_seconds()
+                llm_timeout = _llm_timeout_s if _llm_timeout_s > 0 else None
+
                 try:
                     response = self.llm.stream_chat(
                         messages,
                         tools=tool_defs,
                         on_text_chunk=_on_text_chunk,
                         on_reasoning_chunk=_on_reasoning_chunk,
+                        timeout=llm_timeout,
+                        idle_timeout_s=llm_timeout,
                         should_cancel=self._cancel_event.is_set,
                     )
                 except ProviderStreamError as exc:
@@ -988,6 +1174,8 @@ class AgentLoop:
                         tools=tool_defs,
                         on_text_chunk=_on_text_chunk,
                         on_reasoning_chunk=_on_reasoning_chunk,
+                        timeout=llm_timeout,
+                        idle_timeout_s=llm_timeout,
                         should_cancel=self._cancel_event.is_set,
                     )
 
@@ -1071,8 +1259,8 @@ class AgentLoop:
                         break
                     trace.write({"type": "content_filter_skipped", "iter": current_iter})
                     messages.append({
-                        "role": "system",
-                        "content": CONTENT_FILTER_SKIP_MESSAGE,
+                        "role": "user",
+                        "content": f"<system>{CONTENT_FILTER_SKIP_MESSAGE}</system>",
                     })
                     continue
 
@@ -1091,7 +1279,72 @@ class AgentLoop:
                                 "model": getattr(self.llm, "model_name", None) or get_env_config().llm.langchain_model_name,
                             }
                         )
-                        break
+                        # A transient empty completion (no text, no tool calls)
+                        # must not kill a run that has already done its work:
+                        # nudge once and retry, failing only on a second
+                        # consecutive empty response.
+                        if consecutive_empty_responses >= MAX_CONSECUTIVE_EMPTY_RESPONSE_SKIPS:
+                            break
+                        consecutive_empty_responses += 1
+                        messages.append(
+                            {
+                                "role": "system",
+                                "content": (
+                                    "[SYSTEM] Your previous response was empty (no text, no tool "
+                                    "calls). Respond again with either your next tool call or "
+                                    "your final plain-text answer."
+                                ),
+                            }
+                        )
+                        continue
+                    # A real response resets the consecutive-empty counter.
+                    consecutive_empty_responses = 0
+                    # A model can answer the forced-text final iteration with its
+                    # native tool-call DSL as prose (see _looks_like_tool_call_syntax).
+                    # That is not an answer: retry once with a plain-text instruction,
+                    # and if no budget remains release a deterministic fallback instead
+                    # of leaking the raw markup to the user.
+                    if _looks_like_tool_call_syntax(final_content):
+                        trace.write(
+                            {
+                                "type": "tool_call_syntax_in_answer",
+                                "iter": current_iter,
+                            }
+                        )
+                        messages.append(
+                            {"role": "assistant", "content": final_content}
+                        )
+                        messages.append(
+                            {
+                                "role": "system",
+                                "content": (
+                                    "[SYSTEM] Your previous response was not released: it contained "
+                                    "tool-call syntax even though tool calling is unavailable now. "
+                                    "Provide the final answer as plain prose only, with no XML/DSML tags."
+                                ),
+                            }
+                        )
+                        final_content = ""
+                        if iteration < self.max_iterations:
+                            continue
+                        # No budget left: never leak the raw markup. The
+                        # grounding safe-fallback talks about instrument identity,
+                        # which is wrong for non-market tasks, so use a neutral
+                        # message here instead.
+                        final_content = (
+                            "My final response could not be delivered: it contained "
+                            "tool-call syntax instead of a plain-text answer. "
+                            "Please ask me to continue."
+                        )
+                        self._released_fallback = True
+                        self._released_fallback_reason = (
+                            "final answer withheld: it contained tool-call syntax on "
+                            "the forced-text iteration"
+                        )
+                        self._emit(
+                            "text_delta",
+                            {"delta": final_content, "iter": current_iter},
+                        )
                     if self._grounding is not None:
                         validation = self._grounding.validate_final_answer(final_content)
                         if not validation.valid:
@@ -1114,19 +1367,45 @@ class AgentLoop:
                             messages.append(
                                 {"role": "assistant", "content": final_content}
                             )
+                            recovery = self._grounding.recovery_action(validation)
+                            if recovery is not None and iteration < self.max_iterations:
+                                self._grounding.record_recovery(recovery)
+                                trace.write(
+                                    {
+                                        "type": "grounding_recovery",
+                                        "iter": current_iter,
+                                        "action": recovery,
+                                    }
+                                )
+                                react_trace.append(
+                                    {"type": "grounding_recovery", "action": recovery}
+                                )
+                                messages.append(
+                                    {
+                                        "role": "user",
+                                        "content": f"<system>{self._grounding.recovery_prompt(recovery, validation)}</system>",
+                                    }
+                                )
+                                final_content = ""
+                                continue
                             messages.append(
                                 {
-                                    "role": "system",
-                                    "content": self._grounding.correction_prompt(validation),
+                                    "role": "user",
+                                    "content": f"<system>{self._grounding.correction_prompt(validation)}</system>",
                                 }
                             )
                             final_content = ""
+                            # One extra revision when real iteration budget remains;
+                            # each revision costs one iteration, so without budget the
+                            # run must stop revising and release the safe fallback.
+                            revision_cap = 4 if self.max_iterations - iteration >= 3 else 3
                             if (
                                 iteration < self.max_iterations
-                                and self._grounding.validation_count < 3
+                                and self._grounding.validation_count < revision_cap
                             ):
                                 continue
                             final_content = self._grounding.safe_fallback()
+                            self._released_fallback = True
                             self._emit(
                                 "text_delta",
                                 {"delta": final_content, "iter": current_iter},
@@ -1280,6 +1559,22 @@ class AgentLoop:
         elif (run_dir / "artifacts" / "metrics.csv").exists() or final_content:
             state_store.mark_success(run_dir)
             final_status = "success"
+            if self._released_fallback:
+                final_reason = self._released_fallback_reason or (
+                    "final answer degraded to the deterministic fallback after "
+                    f"{self._grounding.validation_count if self._grounding else 0} "
+                    "rejected drafts could not be corrected within the iteration budget"
+                )
+            elif not self._released_fallback:
+                pending_directive = self._pending_write_directive(
+                    user_message, run_started_wall
+                )
+                if pending_directive:
+                    final_reason = (
+                        "run ended without writing the task target file(s): "
+                        + pending_directive
+                    )
+                    self._released_fallback = True
         elif empty_model_response_iter is not None:
             provider = self._llm_runtime.provider
             model = self._llm_runtime.configured_model or "(unset)"
@@ -1303,6 +1598,8 @@ class AgentLoop:
             "status": final_status,
             "iterations": iteration,
         }
+        if self._released_fallback:
+            end_event["degraded"] = True
         if final_reason is not None:
             end_event["reason"] = final_reason
         trace.write(end_event)
@@ -1317,6 +1614,8 @@ class AgentLoop:
             "iterations": iteration,
             "max_iterations": self.max_iterations,
         }
+        if self._released_fallback:
+            result["degraded"] = True
         configured_model = self._llm_runtime.configured_model
         result.update(
             {
@@ -1848,6 +2147,78 @@ class AgentLoop:
             return False
         return bool(tool_def and getattr(tool_def, "is_readonly", False))
 
+    def _record_written_target(self, arguments: Mapping[str, Any]) -> None:
+        """Remember a file written by write_file/edit_file for completion checks."""
+        raw = arguments.get("path") or arguments.get("file_path")
+        if not raw:
+            return
+        p = Path(str(raw))
+        if not p.is_absolute() and self.memory.run_dir:
+            p = Path(self.memory.run_dir) / p
+        try:
+            self._written_files.add(str(p.resolve()).casefold())
+        except (OSError, ValueError):
+            self._written_files.add(str(p).casefold())
+
+    def _pending_write_directive(
+        self, user_message: str, run_started_wall: float
+    ) -> str:
+        """Return a directive naming task target files not yet written this run.
+
+        Empty when the message names no .md targets, carries no create/update
+        intent, or every named target has been written (directly via
+        write_file/edit_file, or by any process whose mtime is newer than the
+        run start - which covers the bash workaround).
+        """
+        if not _TARGET_ACTION_RE.search(user_message or ""):
+            return ""
+        targets = _named_target_paths(user_message)
+        if not targets:
+            return ""
+        pending: list[str] = []
+        # A bare target ("create X.md at the same folder") carries no directory;
+        # resolve it against the folders of the absolute targets named in the
+        # same message, or the run would never see the file the model wrote to
+        # the intended folder and would report a false "not written".
+        base_dirs = [p.parent for p in targets if p.parent != Path(".")]
+        any_written = False
+        for p in targets:
+            candidates = [p]
+            if not p.is_absolute() and p.parent == Path("."):
+                candidates += [d / p.name for d in base_dirs]
+            written = False
+            for cand in candidates:
+                try:
+                    key = str(cand.resolve()).casefold()
+                except (OSError, ValueError):
+                    key = str(cand).casefold()
+                if key in self._written_files:
+                    written = True
+                    break
+                if not written:
+                    try:
+                        if cand.exists() and cand.stat().st_mtime >= run_started_wall:
+                            written = True
+                            break
+                    except OSError:
+                        pass
+            if written:
+                any_written = True
+            else:
+                pending.append(str(p))
+        # If any named target was written this run, the create/update task is
+        # addressed; reference files named alongside (e.g. "refer to A, create B")
+        # are never "written" and must not trigger the directive.
+        if any_written or not pending:
+            return ""
+        return (
+            "[SYSTEM] The following task target file(s) have NOT been written "
+            "yet in this run: " + ", ".join(pending) + ". Write them NOW using "
+            "write_file/edit_file (or bash for file operations). If your task "
+            "was to create or update a file, a plain-text answer without the "
+            "file write is a failure."
+        )
+
     def _finalize_tool_result(
         self,
         tc: Any,
@@ -1885,6 +2256,8 @@ class AgentLoop:
                     _archive_backtest_result(result, self.memory.run_dir)
                 except OSError as exc:
                     logger.warning("Could not archive backtest output into active run: %s", exc)
+            if tc.name in {"write_file", "edit_file"}:
+                self._record_written_target(tc.arguments)
 
         if self._grounding is not None:
             self._grounding.ingest_tool_result(
@@ -2006,6 +2379,8 @@ class AgentLoop:
         chunks = _summary_chunks(head)
         logger.info("Auto compact: folding %d summary chunks", len(chunks))
         summary = self._previous_summary or ""
+        degraded_compact = False
+        _compact_timeout = _llm_timeout_seconds()
         for conv_text in chunks:
             # Structured template while there is still nothing to update — that
             # covers a fresh session's first chunk and the corner case where
@@ -2019,9 +2394,59 @@ class AgentLoop:
                     focus_section=focus_section,
                 )
 
-            summary_resp = self.llm.chat([{"role": "user", "content": prompt}])
+            # A silent provider stall on the summary call used to freeze the
+            # whole run (no chunk arrives, so nothing aborts it). The provider
+            # httpx timeout only bounds time-between-bytes, not total time, and
+            # LangChain does not honor a per-call config "timeout", so a slow
+            # but alive server can run for many minutes. Enforce a hard
+            # wall-clock deadline via a daemon thread; on expiry fall back to
+            # hard truncation so the loop continues.
+            _compact_result: list = []
+            _compact_error: list = []
+
+            def _run_compact_summary() -> None:
+                try:
+                    resp = self.llm.chat(
+                        [{"role": "user", "content": prompt}],
+                        timeout=_compact_timeout if _compact_timeout > 0 else None,
+                    )
+                    _compact_result.append(resp)
+                except BaseException as exc:  # noqa: BLE001 - compaction must not crash the run
+                    _compact_error.append(exc)
+
+            if _compact_timeout > 0:
+                worker = threading.Thread(
+                    target=_run_compact_summary,
+                    name="compact-summary",
+                    daemon=True,
+                )
+                worker.start()
+                worker.join(timeout=_compact_timeout)
+                if worker.is_alive():
+                    logger.warning(
+                        "Auto compact summary call exceeded %.1fs; degrading compaction",
+                        _compact_timeout,
+                    )
+                    degraded_compact = True
+                    break
+                if _compact_error:
+                    logger.warning(
+                        "Auto compact LLM call failed (%s); degrading compaction",
+                        _compact_error[0],
+                    )
+                    degraded_compact = True
+                    break
+                summary_resp = _compact_result[0]
+            else:
+                summary_resp = self.llm.chat([{"role": "user", "content": prompt}])
             if summary_resp.content:
                 summary = summary_resp.content
+        if degraded_compact and not summary:
+            summary = (
+                "[compaction degraded: LLM summarization timed out or failed; "
+                "earlier tool results were truncated. "
+                f"Full transcript: {transcript_path}]"
+            )
         self._previous_summary = summary
 
         tokens_before = estimate_tokens(messages)

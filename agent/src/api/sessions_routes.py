@@ -674,15 +674,19 @@ def register_sessions_routes(app: FastAPI) -> None:
         def _generate() -> str:
             from src.providers.chat import ChatLLM
 
-            response = ChatLLM().chat([{"role": "user", "content": prompt}], timeout=30)
-            return (getattr(response, "content", "") or "").strip()
+            llm = ChatLLM()
+            try:
+                response = llm.chat([{"role": "user", "content": prompt}], timeout=30)
+                return (getattr(response, "content", "") or "").strip()
+            finally:
+                llm.close()
 
         try:
             raw = await asyncio.to_thread(_generate)
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"title generation failed: {exc}")
 
-        title = raw.splitlines()[0].strip().strip("\"'“”「」『』").strip()
+        title = raw.splitlines()[0].strip().strip("\"'“”「」『』").strip() if raw else ""
         chars = list(title)
         if len(chars) > 40:
             title = "".join(chars[:40])

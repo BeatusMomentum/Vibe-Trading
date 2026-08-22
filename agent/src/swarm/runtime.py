@@ -21,6 +21,7 @@ from typing import Callable
 
 from src.config.accessor import get_env_config
 from src.config.schema import AgentConfig
+from src.providers.llm import _ensure_dotenv, uses_responses_api
 from src.swarm import grounding
 from src.swarm.models import (
     RunStatus,
@@ -30,6 +31,9 @@ from src.swarm.models import (
     SwarmTask,
     TaskStatus,
     WorkerResult,
+    public_model_metadata,
+    public_provider_metadata,
+    public_reasoning_effort,
 )
 from src.swarm.presets import build_run_from_preset
 from src.swarm.store import SwarmStore
@@ -105,6 +109,7 @@ class SwarmRuntime:
             FileNotFoundError: If preset does not exist.
             ValueError: If DAG validation fails.
         """
+        _ensure_dotenv()
         # Reap any previously running runs whose host process died without
         # finalizing them. Threshold is computed per-run from agent timeouts +
         # heartbeat interval (see SwarmStore.compute_stale_threshold), so a
@@ -126,8 +131,14 @@ class SwarmRuntime:
         # override applied via os.environ still shows up. Per-agent overrides
         # remain visible on SwarmAgentSpec.model_name.
         _cfg = get_env_config()
-        run.provider = _cfg.llm.langchain_provider.strip().lower() or None
-        run.model = _cfg.llm.langchain_model_name.strip() or None
+        run.provider = public_provider_metadata(_cfg.llm.langchain_provider.lower())
+        run.model = public_model_metadata(_cfg.llm.langchain_model_name)
+        run.reasoning_effort = public_reasoning_effort(_cfg.llm.langchain_reasoning_effort)
+        run.use_responses_api = uses_responses_api(
+            _cfg.llm.langchain_provider,
+            _cfg.llm.langchain_use_responses_api,
+            _cfg.llm.vibe_trading_deepseek_adapter,
+        )
 
         self._store.create_run(run)
 
