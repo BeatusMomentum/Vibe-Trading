@@ -395,7 +395,7 @@ La mayoría de las ejecuciones siguen la misma ruta de evidencia: enrutar la sol
 
 ## 📡 Fuentes de Datos y Fallback Inteligente
 
-Una sola llamada `get_market_data`, **23 fuentes de datos de mercado gratuitas** (además del mercado premium opcional **QVeris**). Establece `source: "auto"`: el cargador elige según el símbolo y luego recorre una cadena por mercado ordenada por **riesgo de bloqueo de IP**: primero las fuentes públicas que nunca se bloquean, al final las limitadas o que requieren clave. Cero configuración, sin punto único de fallo.
+Una sola llamada `get_market_data`, **27 fuentes de datos de mercado**, una de ellas el mercado premium opcional **QVeris** (además del mercado premium opcional **QVeris**). Establece `source: "auto"`: el cargador elige según el símbolo y luego recorre una cadena por mercado ordenada por **riesgo de bloqueo de IP**: primero las fuentes públicas que nunca se bloquean, al final las limitadas o que requieren clave. Cero configuración, sin punto único de fallo.
 
 | Fuente | Mercados | Autenticación | Rol |
 |--------|---------|------|------|
@@ -409,9 +409,11 @@ Una sola llamada `get_market_data`, **23 fuentes de datos de mercado gratuitas**
 | `longbridge` | EE. UU. / HK | App Key + App Secret + Access Token | fuente OHLCV histórica opcional; instala el SDK opcional |
 | `finnhub` · `alphavantage` · `tiingo` · `fmp` | EE. UU. | clave | proveedores opcionales |
 | `qveris` | multiactivo global | clave · créditos | **mercado premium** — 63+ proveedores mediante una sola clave (solo explícito, nunca en el fallback automático) |
+| `nobitex` · `wallex` | cripto (pares cotizados en tomán iraní) | ninguna | endpoints UDF públicos, **solo por selección explícita**: son las únicas fuentes cotizadas en tomán, así que nunca entran en la cadena de cripto, donde una serie cotizada en USD podría suplantarlas |
 | `okx` · `ccxt` · `binance` | cripto | ninguna | OKX + 100+ exchanges + históricos de Binance / perpetuos USD-M |
 | `futu` | HK / A | OpenD | FutuOpenD local opcional |
 | `mt5` | forex / metales | terminal MT5 | barras de forex/metales de MetaTrader 5 (estilo Exness), 1m–1D |
+| `tickerall` | forex / metales | clave + cuenta (solo lectura) | el mismo feed MT5 del bróker, **alojado**: sin terminal local y en cualquier sistema operativo (solo por selección explícita, nunca en el respaldo automático) |
 | `pykrx` | Corea (KRX: KOSPI/KOSDAQ) | ninguna | barras diarias de KOSPI / KOSDAQ para `.KS` / `.KQ` (extra opcional `krx`) |
 | `india_broker` | India (NSE/BSE) | login de broker | barras de solo lectura de Zerodha / Shoonya / Dhan para `.NS` / `.BO` (al final de la cadena de fallback) |
 | `local` | cualquiera | ninguna | tu propio CSV / Parquet / DuckDB mediante el prefijo `local:` |
@@ -1750,7 +1752,7 @@ Vibe-Trading/
 │   │   └── providers/              # Abstracción de proveedores LLM
 │   │
 │   └── backtest/                   # Motores de backtest
-│       ├── engines/                #   8 motores + motor compuesto multi-mercado + options_portfolio
+│       ├── engines/                #   9 motores + motor compuesto multi-mercado + options_portfolio
 │       ├── loaders/                #   27 fuentes: tushare, okx, nobitex, wallex, binance, yfinance, akshare, baostock, tencent, mootdx, ccxt, futu, pykrx, local, eastmoney, sina, stooq, yahoo, finnhub, alphavantage, tiingo, fmp, longbridge, mt5, qveris, india_broker, tickerall
 │       │   ├── base.py             #   Protocolo DataLoader
 │       │   └── registry.py         #   Registro + cadenas de fallback automáticas
