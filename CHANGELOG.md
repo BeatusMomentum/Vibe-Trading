@@ -469,12 +469,16 @@ Library additions land alongside.
   `futures` rather than falling to the `a_share` default. The rule is
   generated from the product whitelist rather than from a width heuristic,
   so an ordinary ticker ending in `0` keeps its own market.
-- `test_release_version_consistency.py` caught a **fourteenth** published
-  version-declaration site that the eleven it was written for did not cover:
-  the `app.version` mock in
-  `frontend/src/components/layout/__tests__/Layout.test.tsx`. The version
-  named in a `test_cli_update.py` comment is de-versioned here — a version
-  string in a comment has no guard and goes stale at the next bump.
+- `test_release_version_consistency.py` did the job it was written for. The
+  bump missed the `app.version` mock in
+  `frontend/src/components/layout/__tests__/Layout.test.tsx`, and the guard
+  named it — that site has been in its enumeration since it shipped with
+  0.1.14, which is the point of enumerating declaration sites rather than
+  spot-checking the ones somebody remembers. The locale check globs its
+  directory, so `pt-BR.json` was covered the day it landed without anyone
+  extending the test. The version named in a `test_cli_update.py` comment is
+  de-versioned here — a version string in a comment has no guard at all and
+  goes stale at the next bump.
 - Reader-facing counts were re-measured against the code rather than
   incremented by hand: 74 MCP tools, 107 registry tools, 10 backtest engines,
   90 bundled skills, 462 alphas, 27 data sources, 30 swarm presets, 14 broker
