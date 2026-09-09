@@ -299,7 +299,9 @@ def _keyless_agent_tool_count() -> int:
     Measured in a child interpreter, not in-process: ``_discover_subclasses``
     walks ``BaseTool.__subclasses__()`` and caches the result, so a stub tool
     class defined by any earlier test in the session would be counted too
-    (the full suite measured 107 where a clean process measures 106). Shell
+    (when this was written the full suite measured 107 against a clean
+    process's 106 — do not read those as the current count, only as the size
+    of the contamination). Shell
     tools stay off (as they are for ``serve``), and every credential-gated
     tool is hidden by clearing its gate, so the number does not depend on
     which API keys happen to be configured on the machine running the suite.
