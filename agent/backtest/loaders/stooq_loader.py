@@ -179,8 +179,10 @@ class DataLoader:
                 logger.warning(
                     "stooq is serving an anti-bot challenge page instead of CSV "
                     "data; treating it as unavailable for the rest of this "
-                    "process. Reorder the chain via VIBE_TRADING_MARKET_DATA_ORDER_* "
-                    "or drop stooq from it."
+                    "process. Move stooq to the end of the chain via "
+                    "MARKET_DATA_ORDER_* (e.g. MARKET_DATA_ORDER_US_EQUITY); the "
+                    "override must be a permutation of the default chain, so a "
+                    "source can be reordered but not removed."
                 )
                 _challenge_warned = True
             return None
