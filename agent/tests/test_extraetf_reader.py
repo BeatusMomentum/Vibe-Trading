@@ -510,6 +510,83 @@ def test_control_characters_in_text_fields_are_refused():
         parse_export(_holdings_export(_holding(portfolio="Mein\x1fDepot")))
 
 
+@pytest.mark.parametrize(
+    "identifier",
+    [
+        # .upper() is neither length- nor ASCII-preserving: each of these maps to a
+        # twelve-character upper-cased string matching the ISIN shape, and one of
+        # them passes the check digit too. None of them is an ISIN.
+        "a\u00df000000001",
+        "\u0131\u01310000000001",
+        "\ufb01n000000001",
+    ],
+)
+def test_case_mapping_cannot_fabricate_an_isin(identifier):
+    """A shape predicate must not be run on a case-folded value.
+
+    Each input is eleven characters that upper-case to a twelve-character string
+    matching the ISIN shape, and ``aß000000001`` even matches the check digit. So
+    the guard is to refuse them as unattributable holdings, not to read them as
+    ISINs, and the movements path shows they stay raw symbols rather than being
+    rewritten.
+    """
+    with pytest.raises(ExtraEtfFormatError, match="neither an ISIN nor"):
+        parse_export(_holdings_export(_holding(isin=identifier)))
+
+    export = parse_export(_transactions_export(_movement(isin=identifier, instrument_type="Fremdwährung")))
+    (movement,) = export.require_movements()
+    assert movement["instrument_id_kind"] == "raw_symbol"
+    assert movement["instrument_id"] == identifier
+
+
+def test_a_lowercased_isin_is_still_read_as_an_isin():
+    """An ISIN is case-insensitive, so a lower-cased one is canonicalised."""
+    export = parse_export(_holdings_export(_holding(isin="us0378331005")))
+
+    (position,) = export.require_positions()
+    assert position["instrument_id"] == "US0378331005"
+    assert position["instrument_id_kind"] == "isin"
+    assert position["instrument_id_checksum_ok"] is True
+
+
+@pytest.mark.parametrize(
+    "datum",
+    [
+        "\uff10\uff11.\uff10\uff19.\uff12\uff10\uff12\uff16",
+        "\u0660\u0661.\u0660\u0669.\u0662\u0660\u0662\u0666",
+    ],
+)
+def test_non_ascii_digits_are_refused_in_dates_as_they_are_in_numbers(datum):
+    """Unicode digits are accepted by \\d; numbers here are ASCII only."""
+    with pytest.raises(ExtraEtfFormatError, match="DD.MM.YYYY"):
+        parse_export(_transactions_export(_movement(datum=datum)))
+
+
+def test_a_blank_row_of_separators_is_refused_not_dropped():
+    """An unalignable blank record must not be skipped silently."""
+    with pytest.raises(ExtraEtfFormatError, match="blank row of 3 fields"):
+        parse_export(_holdings_export(_holding()) + ";;\n")
+
+    # A genuinely empty line is still just the end of a file.
+    export = parse_export(_holdings_export(_holding()) + "\n\n  \n")
+    assert len(export.require_positions()) == 1
+
+
+def test_as_of_source_must_be_one_of_the_two_documented_origins():
+    with pytest.raises(ValueError, match="as_of_source must be"):
+        parse_export(
+            _holdings_export(_holding()),
+            as_of="2026-01-01T00:00:00+00:00",
+            as_of_source="nonsense",
+        )
+
+
+def test_a_bom_followed_by_whitespace_still_reads_the_header():
+    export = parse_export("\ufeff " + _holdings_export(_holding()))
+
+    assert len(export.require_positions()) == 1
+
+
 def test_require_movements_refuses_a_holdings_export():
     export = parse_export(_holdings_export(_holding()))
 

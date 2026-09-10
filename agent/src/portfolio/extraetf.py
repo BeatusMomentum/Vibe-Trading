@@ -134,11 +134,16 @@ _TRANSACTIONS_COLUMNS: tuple[str, ...] = (
 
 ExportKind = Literal["holdings", "transactions"]
 
-_ISIN_PATTERN = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
+#: Case-insensitive so an otherwise valid lower-cased ISIN is still read, and
+#: ASCII-anchored with an exact twelve-character length so ``.upper()`` is only
+#: ever applied to a value that already has ISIN shape. ``.upper()`` is neither
+#: length- nor ASCII-preserving — it turns ``ß`` into ``SS`` — so using it as the
+#: predicate invents twelve-character ISINs out of eleven-character inputs.
+_ISIN_PATTERN = re.compile(r"^[A-Za-z]{2}[A-Za-z0-9]{9}[0-9]$")
 _WIRE_QUANTUM = Decimal("0.00000001")
 _CRYPTO_PAIR_PATTERN = re.compile(r"^[A-Z0-9]{2,12}_to_[A-Z0-9]{2,12}$", re.IGNORECASE)
 _CURRENCY_PATTERN = re.compile(r"^[A-Z]{3}$")
-_DATE_PATTERN = re.compile(r"^(\d{2})\.(\d{2})\.(\d{4})$")
+_DATE_PATTERN = re.compile(r"^([0-9]{2})\.([0-9]{2})\.([0-9]{4})$")
 _NUMERAL_PATTERN = re.compile(r"^[0-9.,]+$")
 
 #: ``Typ`` is an instrument class, not a row shape: a class this reader does not
@@ -281,6 +286,8 @@ def parse_export(
         raise ValueError(
             "as_of_source cannot claim where an observation time came from when there is no observation time"
         )
+    if as_of_source not in ("file_mtime", "unavailable"):
+        raise ValueError(f"as_of_source must be 'file_mtime' or 'unavailable', not {as_of_source!r}")
     text = _decode(data)
     kind, header, rows = _read_rows(text)
     if kind == "holdings":
@@ -344,9 +351,9 @@ def _read_rows(
         for cells in reader:
             number += 1
             _refuse_multiline_record(cells, number)
-            if not any(cell.strip() for cell in cells):
+            if _skip_blank_row(cells, number):
                 continue
-            header = tuple(cell.strip().lstrip("\ufeff") for cell in cells)
+            header = tuple(cell.replace("\ufeff", "").strip() for cell in cells)
             break
         if header is None:
             raise ExtraEtfFormatError("export is empty")
@@ -356,7 +363,7 @@ def _read_rows(
         for cells in reader:
             number += 1
             _refuse_multiline_record(cells, number)
-            if not any(cell.strip() for cell in cells):
+            if _skip_blank_row(cells, number):
                 continue
             if len(cells) != len(header):
                 raise ExtraEtfFormatError(
@@ -366,11 +373,39 @@ def _read_rows(
                 )
             rows.append((number, [cell.strip() for cell in cells]))
     except csv.Error as exc:
-        # csv raises its own errors for an over-long field or a stray quote. A
-        # caller catches the documented error type, so it is translated rather
-        # than allowed to escape as a bare csv error.
+        # csv raises its own errors for an over-long field, a bare carriage return
+        # or a stray quote. A caller catches the documented error type, so it is
+        # translated rather than allowed to escape as a bare csv error.
         raise ExtraEtfFormatError(f"export is not readable as CSV: {exc}") from exc
     return kind, header, rows
+
+
+def _skip_blank_row(cells: list[str], number: int) -> bool:
+    """Return whether a row is blank enough to skip, refusing an odd blank one.
+
+    A genuinely empty line is how every file ends. A line of nothing but
+    separators is not: it is a record this reader cannot align, and dropping it
+    while claiming to refuse anything unalignable would be the silent skip the
+    rest of this module exists to avoid.
+
+    Args:
+        cells: The record's fields.
+        number: The record's position in the file, for error messages.
+
+    Returns:
+        ``True`` when the row carries no data and should be skipped.
+
+    Raises:
+        ExtraEtfFormatError: If the row is blank but wider than one field.
+    """
+    if any(cell.strip() for cell in cells):
+        return False
+    if len(cells) <= 1:
+        return True
+    raise ExtraEtfFormatError(
+        f"row {number}: a blank row of {len(cells)} fields is not a layout this export "
+        f"declares, so it is refused rather than dropped silently"
+    )
 
 
 def _refuse_multiline_record(cells: list[str], number: int) -> None:
@@ -707,8 +742,8 @@ def _describe_identifier(raw: str) -> tuple[str, str, bool | None]:
     identifier = raw.strip()
     if not identifier:
         return "", "unknown", None
-    canonical = identifier.upper()
-    if _ISIN_PATTERN.fullmatch(canonical):
+    if _ISIN_PATTERN.fullmatch(identifier):
+        canonical = identifier.upper()
         return canonical, "isin", _isin_checksum_ok(canonical)
     if _CRYPTO_PAIR_PATTERN.fullmatch(identifier):
         return identifier, "crypto_pair", None
