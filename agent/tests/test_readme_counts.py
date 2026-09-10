@@ -299,7 +299,9 @@ def _keyless_agent_tool_count() -> int:
     Measured in a child interpreter, not in-process: ``_discover_subclasses``
     walks ``BaseTool.__subclasses__()`` and caches the result, so a stub tool
     class defined by any earlier test in the session would be counted too
-    (the full suite measured 107 where a clean process measures 106). Shell
+    (when this was written the full suite measured 107 against a clean
+    process's 106 — do not read those as the current count, only as the size
+    of the contamination). Shell
     tools stay off (as they are for ``serve``), and every credential-gated
     tool is hidden by clearing its gate, so the number does not depend on
     which API keys happen to be configured on the machine running the suite.
@@ -594,4 +596,83 @@ def test_readme_loader_tree_line_matches_the_registry(readme: str) -> None:
     assert int(match.group("count")) == len(registered), (
         f"{readme}: tree line says {match.group('count')} sources, "
         f"the registry has {len(registered)}"
+    )
+
+# ---------------------------------------------------------------------------
+# The Data Sources section and the engines tree line
+#
+# `test_readme_loader_tree_line_matches_the_registry` guarded the loaders line
+# of the repo tree, and only that line. The prose two hundred lines above it
+# and the table directly beneath were left unguarded, so they drifted exactly
+# as far as nothing was checking: the intro claimed "23 free market-data
+# sources" against a registry of 27, contradicting the tree line in the same
+# file, and `nobitex` / `wallex` never reached the table at all. The engines
+# tree line said 8 where the code shipped 9 plus the composite, while the
+# feature badge — which is checked — said 10.
+#
+# Anchors are code literals (`source: "auto"`, `engines/`, a backticked
+# source name) so they survive translation, per this file's founding
+# constraint.
+# ---------------------------------------------------------------------------
+
+_SOURCE_INTRO_ANCHOR = 'source: "auto"'
+_ENGINE_TREE_RE = re.compile(r"^│\s+├── engines/\s+#\s+(?P<count>\d+)\s", re.M)
+
+
+def _source_intro_line(text: str) -> str:
+    """Return the Data Sources intro paragraph.
+
+    ``source: "auto"`` appears twice — the intro and a later usage example —
+    and the intro is the first. Anchoring on the literal rather than the
+    heading keeps this locale-independent.
+    """
+    hits = [line for line in text.splitlines() if _SOURCE_INTRO_ANCHOR in line]
+    assert hits, "no Data Sources intro line"
+    return hits[0]
+
+
+@pytest.mark.parametrize("readme", READMES)
+def test_data_sources_prose_states_the_real_source_count(readme: str) -> None:
+    """The headline source count must be the registry's, in every language."""
+    from backtest.loaders.registry import LOADER_REGISTRY, _ensure_registered
+
+    _ensure_registered()
+    line = _source_intro_line(_read(readme))
+    bold = " ".join(re.findall(r"\*\*(.+?)\*\*", line))
+    assert str(len(LOADER_REGISTRY)) in _numbers(bold), (
+        f"{readme}: the Data Sources intro states "
+        f"{sorted(_numbers(bold))} where the registry has {len(LOADER_REGISTRY)}"
+    )
+
+
+@pytest.mark.parametrize("readme", READMES)
+def test_every_registered_source_appears_in_the_data_sources_table(readme: str) -> None:
+    """A source the loader can serve but the table never names is invisible.
+
+    The reader picks a source from this table; one that ships without a row
+    is shipped to nobody. Checked against the registry rather than against
+    the other READMEs, so all six being uniformly wrong still fails.
+    """
+    from backtest.loaders.registry import LOADER_REGISTRY, _ensure_registered
+
+    _ensure_registered()
+    rows = [l for l in _read(readme).splitlines() if l.startswith("| `")]
+    table = " ".join(rows)
+    missing = sorted(n for n in LOADER_REGISTRY if f"`{n}`" not in table)
+    assert not missing, f"{readme}: sources missing from the Data Sources table: {missing}"
+
+
+@pytest.mark.parametrize("readme", READMES)
+def test_repo_tree_states_the_real_engine_count(readme: str) -> None:
+    """The engines tree line names the composite engine separately.
+
+    `_engine_count()` counts every market engine including `composite`, and
+    the tree line reads "N engines + composite ... + options_portfolio", so
+    the number it carries is one less than that count.
+    """
+    match = _ENGINE_TREE_RE.search(_read(readme))
+    assert match, f"{readme}: no engines tree line"
+    assert int(match.group("count")) == _engine_count() - 1, (
+        f"{readme}: engines tree line says {match.group('count')}, "
+        f"the code ships {_engine_count() - 1} plus the composite engine"
     )

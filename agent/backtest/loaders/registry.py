@@ -173,7 +173,13 @@ FALLBACK_CHAINS: dict[str, list[str]] = {
     "vietnam_equity": ["yahoo", "yfinance", "local"],
     # OKX first (native), then dedicated Binance, then generic CCXT / Yahoo.
     "crypto":    ["okx", "binance", "ccxt", "yfinance", "local"],
-    "futures":   ["tushare", "akshare", "local"],
+    # tushare led this chain while implementing no futures endpoint at all
+    # (#1395): ``resolve_loader`` walks FALLBACK_CHAINS and never consults a
+    # loader's ``markets`` set, so trimming that set alone would have left
+    # tushare first in line, returning empty frames before akshare was ever
+    # asked. akshare serves Chinese contracts off the token-free Sina daily
+    # endpoints; a global contract has no network source and reaches ``local``.
+    "futures":   ["akshare", "local"],
     "fund":      ["tushare", "akshare", "local"],
     "macro":     ["akshare", "tushare", "local"],
     # mt5 leads when a local MetaTrader 5 terminal is attached (Windows-only,

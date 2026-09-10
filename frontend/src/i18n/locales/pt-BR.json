@@ -1,6 +1,6 @@
 {
   "app": {
-    "version": "v0.1.14"
+    "version": "v0.1.15"
   },
   "charts": {
     "noPriceData": "Ainda não há dados de preço para este símbolo",

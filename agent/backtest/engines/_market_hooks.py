@@ -22,6 +22,32 @@ from backtest.models import Position
 
 # ── Symbol -> market classification (shared by runner.py + composite.py) ──
 
+# Known Chinese-futures product codes — used as a heuristic when a symbol
+# lacks an exchange suffix (e.g. bare ``RB2410``, ``IF2406``). Without this
+# table composite.py was misrouting such bare codes to GlobalFutures.
+# Stored lowercase; ``_is_china_futures`` lowercases the extracted product
+# before lookup so callers can pass any case (``RB2410`` and ``rb2410``
+# both resolve correctly).
+_CN_FUTURES_PRODUCTS = {
+    "if", "ic", "ih", "im", "t", "tf", "ts", "tl",
+    "au", "ag", "cu", "al", "zn", "pb", "ni", "sn", "ss",
+    "rb", "hc", "i", "j", "jm",
+    "sc", "fu", "lu", "bu", "nr",
+    "c", "cs", "m", "y", "a", "p", "jd", "lh",
+    "cf", "sr", "ta", "ma", "ap", "rm", "oi",
+    "pp", "l", "v", "eg", "eb", "pf", "sa", "fg", "ur",
+    "si", "lc",
+}
+
+
+#: The main continuous contract, spelled ``<product>0`` (``RB0``, ``IF0``).
+#: Built from the product whitelist rather than a width rule, because a
+#: bare ``<letters>0`` is otherwise indistinguishable from an ordinary
+#: ticker; anchoring on the whitelist leaves no collision surface.
+_CN_FUTURES_MAIN_PATTERN = r"^(?:{})0$".format(
+    "|".join(sorted(_CN_FUTURES_PRODUCTS, key=len, reverse=True))
+)
+
 _MARKET_PATTERNS = [
     (re.compile(r"^\d{6}\.(SZ|SH|BJ)$", re.I), "a_share"),
     (re.compile(r"^(51|15|56)\d{4}\.(SZ|SH)$", re.I), "a_share"),
@@ -55,13 +81,33 @@ _MARKET_PATTERNS = [
     # they still reach the forex whitelist below.
     (re.compile(r"^[A-Z]{2,}(?:USDT|USDC|BUSD)$", re.I), "crypto"),
     # China futures: product+delivery.exchange (e.g. IF2406.CFFEX, rb2410.SHFE)
-    (re.compile(r"^[A-Za-z]{1,2}\d{3,4}\.(ZCE|DCE|SHFE|INE|CFFEX|GFEX)$", re.I), "futures"),
+    # Tushare suffix spellings (SHF/CZC/CFX/GFE) classify here too.
+    (re.compile(r"^[A-Za-z]{1,2}\d{3,4}\.(ZCE|DCE|SHFE|INE|CFFEX|GFEX|SHF|CZC|CFX|GFE)$", re.I), "futures"),
     # Global futures: product+month-code (e.g. ESZ4, CLF25, GCM2025)
     (re.compile(r"^[A-Z]{2,4}[FGHJKMNQUVXZ]\d{1,2}$", re.I), "futures"),
     # Global futures: product+YYMM (e.g. CL2412, ES2503)
     (re.compile(r"^[A-Z]{2,4}\d{4}$", re.I), "futures"),
     # Global futures: bare product code with exchange (e.g. ES.CME)
     (re.compile(r"^[A-Z]{2,4}\.(CME|CBOT|NYMEX|COMEX|ICE|EUREX)$", re.I), "futures"),
+    # Global futures: dated contract carrying its venue (ESZ4.CME, CL2412.NYMEX,
+    # GCM2025.COMEX). The bare dated forms above matched, and the continuous
+    # form with a venue matched, but the combination fell through every pattern
+    # to the a_share default below — a USD contract then priced in CNY under
+    # T+1 with no shorting. Same class as #1394 on the global side. The product
+    # width opens to {1,4} here (not on the bare forms) because a recognized
+    # futures venue already proves the class: CBOT lists single-letter grains
+    # (C, S, W, O), which ``^[A-Z]{2,4}\d{4}$`` cannot express without also
+    # claiming bare codes it has no venue to justify.
+    (re.compile(
+        r"^[A-Z]{1,4}(?:[FGHJKMNQUVXZ]\d{1,2}|\d{4})\.(CME|CBOT|NYMEX|COMEX|ICE|EUREX)$",
+        re.I,
+    ), "futures"),
+    # China futures: main continuous contract (RB0, IF0, MA0). Dated contracts
+    # live ~240 trading days (RB2601 measured at 242), so any backtest longer
+    # than a contract cycle has to name the rolled series. It fell through to
+    # the a_share default, which put a leveraged futures series under T+1 and
+    # no shorting, and kept it out of the futures loader chain entirely.
+    (re.compile(_CN_FUTURES_MAIN_PATTERN, re.I), "futures"),
     # Forex pairs: XXX/YYY or XXXXXX.FX
     (re.compile(r"^[A-Z]{3}/[A-Z]{3}$"), "forex"),
     (re.compile(r"^[A-Z]{6}\.FX$"), "forex"),
@@ -101,6 +147,10 @@ _MARKET_PATTERNS = [
 ]
 
 _CHINA_EXCHANGES = {"CFFEX", "SHFE", "DCE", "ZCE", "INE", "GFEX"}
+
+# Tushare spells the same exchanges differently (ts_code='CU1811.SHF');
+# normalize to the canonical suffix before any set membership test (#1394).
+_EXCHANGE_ALIASES = {"SHF": "SHFE", "CZC": "ZCE", "CFX": "CFFEX", "GFE": "GFEX"}
 
 # Supported settlement-currency contract per market. A composite backtest holds
 # one shared capital pool, so a code set spanning two of these would add CNY to
@@ -161,24 +211,6 @@ def code_currency(code: str) -> str:
         return _FUTURES_EXCHANGE_CURRENCY.get(exchange, "USD")
     return f"UNKNOWN:{market}"
 
-# Known Chinese-futures product codes — used as a heuristic when a symbol
-# lacks an exchange suffix (e.g. bare ``RB2410``, ``IF2406``). Without this
-# table composite.py was misrouting such bare codes to GlobalFutures.
-# Stored lowercase; ``_is_china_futures`` lowercases the extracted product
-# before lookup so callers can pass any case (``RB2410`` and ``rb2410``
-# both resolve correctly).
-_CN_FUTURES_PRODUCTS = {
-    "if", "ic", "ih", "im", "t", "tf", "ts", "tl",
-    "au", "ag", "cu", "al", "zn", "pb", "ni", "sn", "ss",
-    "rb", "hc", "i", "j", "jm",
-    "sc", "fu", "lu", "bu", "nr",
-    "c", "cs", "m", "y", "a", "p", "jd", "lh",
-    "cf", "sr", "ta", "ma", "ap", "rm", "oi",
-    "pp", "l", "v", "eg", "eb", "pf", "sa", "fg", "ur",
-    "si", "lc",
-}
-
-
 def _detect_market(code: str) -> str:
     """Infer market type from symbol format.
 
@@ -222,7 +254,7 @@ def _is_china_futures(code: str) -> bool:
         # else = False. Without this guard the product-code heuristic below
         # would misclassify global futures whose product letters happen to
         # collide with a CN product (e.g. ``M2412.CBOT`` — US soybean meal).
-        return parts[1] in _CHINA_EXCHANGES
+        return _EXCHANGE_ALIASES.get(parts[1], parts[1]) in _CHINA_EXCHANGES
     # Bare code (no exchange suffix): fall back to product-code heuristic.
     m = re.match(r"([A-Za-z]+)\d+", parts[0])
     if m:

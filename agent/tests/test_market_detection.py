@@ -123,6 +123,43 @@ class TestDetectMarket:
         assert _detect_market("123456") == "a_share"
         assert _detect_market("@#$") == "a_share"
 
+    def test_tushare_suffix_china_futures_classify_as_china_futures(self) -> None:
+        # #1394: Tushare spells the exchanges SHF/CZC/CFX/GFE where the
+        # canonical set is SHFE/ZCE/CFFEX/GFEX; without the alias these
+        # contracts fell through to the a_share default or the global engine
+        # (wrong multiplier, wrong currency, wrong band rules).
+        for code in ("CU1811.SHF", "CF501.CZC", "IF2406.CFX", "SC2409.GFE"):
+            assert _detect_market(code) == "futures", code
+            assert code_currency(code) == "CNY", code
+        # Canonical spellings keep working.
+        assert _detect_market("CU2406.SHFE") == "futures"
+        assert code_currency("rb2410.DCE") == "CNY"
+        # A non-China exchange must still not classify as China futures.
+        assert not _is_china_futures("M2412.CBOT")
+        assert not _is_china_futures("CL2412.NYMEX")
+        # And a global futures code with a recognized venue keeps its currency.
+        assert code_currency("ES.CME") == "USD"
+
+    def test_dated_global_futures_with_a_venue_suffix_classify_as_futures(self) -> None:
+        # The sibling of #1394 on the global side: the bare dated forms
+        # (CL2412, ESZ4) classified, and the continuous form with a venue
+        # (ES.CME) classified, but the combination fell through to the a_share
+        # default -- so a USD contract was settled in CNY under A-share T+1
+        # rules with no shorting.
+        for code in ("CL2412.NYMEX", "ES2503.CME", "ESZ4.CME", "GCM2025.COMEX"):
+            assert _detect_market(code) == "futures", code
+            assert not _is_china_futures(code), code
+            assert code_currency(code) == "USD", code
+        # The venue decides the currency, not the default.
+        assert code_currency("FDAX2412.EUREX") == "EUR"
+        # A recognized venue is what admits a single-letter product (CBOT
+        # grains); the bare form stays out because nothing proves its class.
+        assert _detect_market("C2412.CBOT") == "futures"
+        assert _detect_market("C2412") == "a_share"
+        # Equities that share the shape must not be captured.
+        assert _detect_market("AAPL.US") == "us_equity"
+        assert _detect_market("TD.TO") == "ca_equity"
+
     def test_concatenated_crypto_pairs_route_to_crypto(self) -> None:
         # Separator-less spot pairs (the Binance spelling) used to fall
         # through every pattern and pick up a_share rules, T+1 and no
@@ -404,3 +441,55 @@ class TestDetectMarketRequired:
         assert _detect_market("usdjpy") == "forex"
         assert _detect_market("gc=f") == "futures"
         assert _detect_market("eurusd=x") == "forex"
+
+
+class TestChinaFuturesMainContract:
+    """#1395 — ``<product>0`` is the rolled series, and it was not routed.
+
+    A dated contract lives about one year (``RB2601`` measured at 242 trading
+    days), so any backtest spanning more than a contract cycle has to name the
+    main continuous series. ``RB0`` matched no pattern and fell to the
+    ``a_share`` default, which both applied T+1 and no-shorting to a leveraged
+    futures series and kept it out of the futures loader chain.
+    """
+
+    @pytest.mark.parametrize("code", [
+        "RB0",    # SHFE rebar
+        "rb0",    # lowercase — the table is case-insensitive
+        "IF0",    # CFFEX index future
+        "T0",     # CFFEX 10y treasury, single-letter product
+        "MA0",    # ZCE methanol
+        "SI0",    # GFEX industrial silicon
+        "V0",     # DCE PVC, single-letter product
+    ])
+    def test_main_contract_resolves_to_futures(self, code: str) -> None:
+        assert _detect_market(code) == "futures"
+
+    @pytest.mark.parametrize("code", [
+        "TSLA0",   # not a whitelisted product — must stay off the futures path
+        "ABCD0",   # NB: "ZZZ0" is genuinely a global month-code contract
+                   # (product ZZ, Z = December) under the pre-existing rule,
+                   # so it is not a counter-example to this one.
+        "AAPL",
+        "600519.SH",
+        "000001.SZ",
+    ])
+    def test_non_product_codes_do_not_become_futures(self, code: str) -> None:
+        """The other side of the gate.
+
+        The rule is anchored on the product whitelist rather than a width
+        heuristic precisely so an ordinary symbol ending in ``0`` keeps its
+        own market.
+        """
+        assert _detect_market(code) != "futures"
+
+    def test_main_contract_is_recognised_as_chinese(self) -> None:
+        """It must reach ChinaFuturesEngine, not GlobalFutures."""
+        assert _is_china_futures("RB0")
+        assert _is_china_futures("IF0")
+        assert not _is_china_futures("CL2412.NYMEX")
+
+    def test_dated_contracts_keep_their_routing(self) -> None:
+        """Adding the main-contract rule must not disturb the dated forms."""
+        for code in ("RB2601", "rb2410.SHFE", "IF2406.CFFEX", "CL2412.NYMEX", "ESZ4"):
+            assert _detect_market(code) == "futures", code

@@ -779,6 +779,20 @@ class BaseEngine(ABC):
             "unfilled_plan_rejections_by_symbol": by_symbol,
         }
 
+    def _engine_diagnostics(self) -> Dict[str, Any]:
+        """Per-engine facts about how this run was priced.
+
+        Default empty. An engine overrides this to state something the metrics
+        cannot be derived from — currently ChinaFuturesEngine reporting which
+        products it priced on a generic default instead of a table entry
+        (#1393), where the alternative is a number that looks like data.
+
+        Returns:
+            Extra keys merged into the metrics dict; empty when there is
+            nothing to declare.
+        """
+        return {}
+
     def _on_plan_rejected(self, symbol: str, reason: str, timestamp: pd.Timestamp) -> None:
         """Observe a silently rejected opening-order plan.
 
@@ -1005,6 +1019,7 @@ class BaseEngine(ABC):
                 m["total_return"] - benchmark_metadata["benchmark_return"], 6
             )
         m.update(self._plan_rejection_metrics())
+        m.update(self._engine_diagnostics())
         if self.rebalance_mask is not None:
             m["rebalance_mask"] = self.rebalance_mask
             m["rebalance_bars_executed"] = self.rebalance_bars_executed
