@@ -15,29 +15,69 @@ Three properties are deliberate and load-bearing.
 **A transactions export can never be read as a portfolio.** Its rows are
 movements — ``Kauf``/``Verkauf``/``Dividende``/``Einbuchung``/``Ausbuchung`` —
 not holdings. An allocation computed from trades looks perfectly plausible and
-is wrong, so the two formats are told apart by their header and
-:meth:`ExtraEtfExport.require_positions` refuses anything that is not a
-holdings export. Movements carry an explicit ``movement_kind`` so a dividend or
+is wrong, so the two formats are told apart by their header and positions are
+reachable only through :meth:`ExtraEtfExport.require_positions`, which refuses
+any other export. Movements carry an explicit ``movement_kind`` so a dividend or
 a transfer is never mistaken for a trade.
 
 **A holdings export carries no date.** The format has no snapshot column, so
 freshness can only come from the file's own modification time, and the export
-says so through ``as_of_source``. This reader never claims an observation time
-it did not read.
+says so through ``as_of_source``. No position carries an observation time: a
+row's ``source_mtime`` is the file's modification time, kept under a name no
+connector ever fills with a real fetch time, and ``updated_at`` is ``None``
+rather than a copy of it. Copying or syncing an export rewrites that mtime, so
+``source_mtime`` reports when the *file* last changed and nothing more.
 
 **Validation fails closed.** A row this reader does not recognise raises
 :class:`ExtraEtfFormatError` instead of being skipped: an import computed from
 90% of a portfolio reads as entirely plausible, whereas a refused import is
-merely annoying. Numbers are parsed as German — ``1.386,608`` is 1386.608 — and
-a value that cannot be read unambiguously is refused rather than guessed.
-``1,234.56`` is US-formatted; reading it as German would be wrong by three
-orders of magnitude, so it is refused instead.
+merely annoying. That covers ragged rows, records that span more than one
+physical line, unknown or missing columns, unreadable or contradictory numbers,
+empty required fields, and text fields carrying control characters.
+
+The number rule is precise, because it is the one that can change a position's
+size by orders of magnitude. A comma is the decimal separator and a period may
+only be a thousands separator, so ``1.386,608`` is 1386.608 and ``12,3456`` is
+12.3456. A value whose separators are US-ordered (``1,234.56``) is refused,
+because reading it as German would be wrong by a thousandfold. A period grouping
+that is not a plain thousands separator (``1.23``, ``1234.56``) is refused too,
+because it is neither a valid German number nor safely a US one. What is *not*
+refused is a period-grouped value that is valid German — ``1.900`` is 1900 — and
+that reading is a convention of the format, not a deduction: ``1.900`` could be
+1.9 in a US-locale file, and no amount of parsing can tell the two apart.
+extraETF writes German, so German wins, and a file that had been round-tripped
+through a US-locale spreadsheet is caught by the *other* values in it rather
+than by this one.
 
 Rows are read by column name, so a reordered export cannot mis-align a value
 into the wrong column. Rows are **not** merged or de-duplicated: two rows for
 the same instrument in one portfolio are returned as two positions, because
 summing them silently and dropping one silently are both wrong, and which one
 the user meant is not this module's call.
+
+The emitted position uses the portfolio package's own field names so a container
+can consume it, and carries the export's remaining columns alongside them. It
+does **not** route the row through
+:func:`src.portfolio.normalization.normalize_position`, which is the obvious way
+to guarantee one wire shape, because that function stamps ``updated_at`` with
+the current time — an observation time this reader never made — and defaults an
+unknown instrument class to ``"stock"``. Both are fabrications a file import
+must not make, so the mapping is done here and the divergences are the three
+shown above: ``quote_symbol``'s None, ``asset_type``'s None, and ``updated_at``
+against ``source_mtime``.
+
+Values are carried as the export reports them rather than repaired: a zero or
+negative quantity, a zero FX rate, and two different portfolio names under one
+portfolio ID all pass through, because a reader that silently corrects its input
+is a reader whose output no longer describes the file. What is refused is input
+that cannot be read at all.
+
+Two limits are inherent to the format and belong in the caller's hands. A file
+truncated exactly at a record boundary is indistinguishable from a short export,
+because neither format carries a row count or a footer; a caller that knows how
+many positions to expect is the only thing that can catch that. An export with a
+header and no rows is read as a valid empty portfolio, because an empty
+portfolio and an unreadable file are different states.
 
 The module writes nothing, holds no credentials, and touches no network. It
 only reads a local file the user exported themselves, and it has no path to any
@@ -95,6 +135,7 @@ _TRANSACTIONS_COLUMNS: tuple[str, ...] = (
 ExportKind = Literal["holdings", "transactions"]
 
 _ISIN_PATTERN = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
+_WIRE_QUANTUM = Decimal("0.00000001")
 _CRYPTO_PAIR_PATTERN = re.compile(r"^[A-Z0-9]{2,12}_to_[A-Z0-9]{2,12}$", re.IGNORECASE)
 _CURRENCY_PATTERN = re.compile(r"^[A-Z]{3}$")
 _DATE_PATTERN = re.compile(r"^(\d{2})\.(\d{2})\.(\d{4})$")
@@ -126,10 +167,14 @@ class ExtraEtfFormatError(ValueError):
 class ExtraEtfExport:
     """One parsed export, with its provenance attached.
 
+    The payloads are deliberately private. An export cannot hold both positions
+    and movements, and reaching for the wrong one used to yield an empty tuple
+    rather than an error — which turns "this is a transactions export" into "this
+    portfolio is empty", the exact plausible-and-wrong outcome this module exists
+    to prevent. Both accessors refuse a mismatched export instead.
+
     Attributes:
         kind: Which of the two extraETF formats this file is.
-        positions: Holdings rows. Always empty for a transactions export.
-        movements: Transactions rows. Always empty for a holdings export.
         as_of: ISO-8601 observation time, or ``None`` when it could not be read.
         as_of_source: Where ``as_of`` came from — ``"file_mtime"`` for a file
             read from disk, ``"unavailable"`` for bare text with no timestamp.
@@ -140,11 +185,11 @@ class ExtraEtfExport:
     """
 
     kind: ExportKind
-    positions: tuple[dict[str, Any], ...]
-    movements: tuple[dict[str, Any], ...]
     as_of: str | None
     as_of_source: Literal["file_mtime", "unavailable"]
     source_path: Path | None
+    _positions: tuple[dict[str, Any], ...] = ()
+    _movements: tuple[dict[str, Any], ...] = ()
 
     def require_positions(self) -> tuple[dict[str, Any], ...]:
         """Return holdings positions, refusing any other export outright.
@@ -161,7 +206,21 @@ class ExtraEtfExport:
                 "this is a transactions export and holds movements, not positions; "
                 "importing it as a portfolio would build an allocation out of trades"
             )
-        return self.positions
+        return self._positions
+
+    def require_movements(self) -> tuple[dict[str, Any], ...]:
+        """Return movements, refusing a holdings export outright.
+
+        Returns:
+            The parsed movements, possibly empty for an account with no history.
+
+        Raises:
+            ExtraEtfFormatError: If this export is a holdings export, whose rows
+                are positions rather than movements.
+        """
+        if self.kind != "transactions":
+            raise ExtraEtfFormatError("this is a holdings export and holds positions, not movements")
+        return self._movements
 
 
 def read_export(path: str | Path) -> ExtraEtfExport:
@@ -191,9 +250,7 @@ def read_export(path: str | Path) -> ExtraEtfExport:
     except OSError as exc:
         raise ExtraEtfFormatError(f"cannot read export {resolved}: {exc}") from exc
     as_of = datetime.fromtimestamp(modified, tz=timezone.utc).isoformat()
-    return parse_export(
-        data, source_path=resolved, as_of=as_of, as_of_source="file_mtime"
-    )
+    return parse_export(data, source_path=resolved, as_of=as_of, as_of_source="file_mtime")
 
 
 def parse_export(
@@ -222,28 +279,23 @@ def parse_export(
     """
     if as_of is None and as_of_source != "unavailable":
         raise ValueError(
-            "as_of_source cannot claim where an observation time came from when "
-            "there is no observation time"
+            "as_of_source cannot claim where an observation time came from when there is no observation time"
         )
     text = _decode(data)
     kind, header, rows = _read_rows(text)
     if kind == "holdings":
-        positions = tuple(
-            _parse_holding(header, cells, number, as_of=as_of) for number, cells in rows
-        )
+        positions = tuple(_parse_holding(header, cells, number, as_of=as_of) for number, cells in rows)
         movements: tuple[dict[str, Any], ...] = ()
     else:
         positions = ()
-        movements = tuple(
-            _parse_movement(header, cells, number) for number, cells in rows
-        )
+        movements = tuple(_parse_movement(header, cells, number) for number, cells in rows)
     return ExtraEtfExport(
         kind=kind,
-        positions=positions,
-        movements=movements,
         as_of=as_of,
         as_of_source=as_of_source,
         source_path=Path(source_path) if source_path is not None else None,
+        _positions=positions,
+        _movements=movements,
     )
 
 
@@ -288,29 +340,62 @@ def _read_rows(
     reader = csv.reader(io.StringIO(text), delimiter=";")
     header: tuple[str, ...] | None = None
     number = 0
-    for cells in reader:
-        number += 1
-        if not any(cell.strip() for cell in cells):
-            continue
-        header = tuple(cell.strip().lstrip("\ufeff") for cell in cells)
-        break
-    if header is None:
-        raise ExtraEtfFormatError("export is empty")
-    kind = _detect_kind(header)
+    try:
+        for cells in reader:
+            number += 1
+            _refuse_multiline_record(cells, number)
+            if not any(cell.strip() for cell in cells):
+                continue
+            header = tuple(cell.strip().lstrip("\ufeff") for cell in cells)
+            break
+        if header is None:
+            raise ExtraEtfFormatError("export is empty")
+        kind = _detect_kind(header)
 
-    rows: list[tuple[int, list[str]]] = []
-    for cells in reader:
-        number += 1
-        if not any(cell.strip() for cell in cells):
-            continue
-        if len(cells) != len(header):
-            raise ExtraEtfFormatError(
-                f"row {number}: expected {len(header)} fields to match the header, "
-                f"found {len(cells)}; a row that cannot be aligned is refused rather "
-                f"than skipped"
-            )
-        rows.append((number, [cell.strip() for cell in cells]))
+        rows: list[tuple[int, list[str]]] = []
+        for cells in reader:
+            number += 1
+            _refuse_multiline_record(cells, number)
+            if not any(cell.strip() for cell in cells):
+                continue
+            if len(cells) != len(header):
+                raise ExtraEtfFormatError(
+                    f"row {number}: expected {len(header)} fields to match the header, "
+                    f"found {len(cells)}; a row that cannot be aligned is refused rather "
+                    f"than skipped"
+                )
+            rows.append((number, [cell.strip() for cell in cells]))
+    except csv.Error as exc:
+        # csv raises its own errors for an over-long field or a stray quote. A
+        # caller catches the documented error type, so it is translated rather
+        # than allowed to escape as a bare csv error.
+        raise ExtraEtfFormatError(f"export is not readable as CSV: {exc}") from exc
     return kind, header, rows
+
+
+def _refuse_multiline_record(cells: list[str], number: int) -> None:
+    """Refuse a csv record whose fields span more than one physical line.
+
+    extraETF writes one record per line and never quotes an embedded newline. A
+    stray quote in one field therefore makes csv fold the *following* lines into
+    that record: the record still has the right field count, so the arity check
+    passes, and two positions silently become one with another instrument's
+    quantity and value grafted onto it. That is a plausible-looking wrong
+    portfolio, so the fold is refused outright rather than aligned.
+
+    Args:
+        cells: The record's fields.
+        number: The record's position in the file, for error messages.
+
+    Raises:
+        ExtraEtfFormatError: If any field contains a line break.
+    """
+    if any("\n" in cell or "\r" in cell for cell in cells):
+        raise ExtraEtfFormatError(
+            f"row {number}: a field spans more than one line, so this record and "
+            f"the line after it were folded together; a stray quote is the usual "
+            f"cause and the positions it swallowed cannot be recovered here"
+        )
 
 
 def _detect_kind(header: tuple[str, ...]) -> ExportKind:
@@ -328,9 +413,7 @@ def _detect_kind(header: tuple[str, ...]) -> ExportKind:
     columns = set(header)
     if len(header) == len(_HOLDINGS_COLUMNS) and columns == set(_HOLDINGS_COLUMNS):
         return "holdings"
-    if len(header) == len(_TRANSACTIONS_COLUMNS) and columns == set(
-        _TRANSACTIONS_COLUMNS
-    ):
+    if len(header) == len(_TRANSACTIONS_COLUMNS) and columns == set(_TRANSACTIONS_COLUMNS):
         return "transactions"
     transactions_like = "Transaktion" in columns
     expected = _TRANSACTIONS_COLUMNS if transactions_like else _HOLDINGS_COLUMNS
@@ -343,9 +426,7 @@ def _detect_kind(header: tuple[str, ...]) -> ExportKind:
     )
 
 
-def _parse_holding(
-    header: tuple[str, ...], cells: list[str], number: int, *, as_of: str | None
-) -> dict[str, Any]:
+def _parse_holding(header: tuple[str, ...], cells: list[str], number: int, *, as_of: str | None) -> dict[str, Any]:
     """Convert one holdings row into a position.
 
     Args:
@@ -372,10 +453,7 @@ def _parse_holding(
     instrument_type = _required(row, "Typ", number)
     currency = _required(row, "Währung", number).upper()
     if not _CURRENCY_PATTERN.fullmatch(currency):
-        raise ExtraEtfFormatError(
-            f"row {number}: Währung is not a three-letter currency code: "
-            f"{row['Währung']!r}"
-        )
+        raise ExtraEtfFormatError(f"row {number}: Währung is not a three-letter currency code: {row['Währung']!r}")
     portfolio_id = _required(row, "Portfolio ID", number)
     quantity = _parse_decimal(row["Anzahl"], field="Anzahl", row_number=number)
     if quantity is None:
@@ -384,41 +462,43 @@ def _parse_holding(
         "broker": BROKER,
         "source": "extraetf_export",
         "symbol": identifier,
-        "quote_symbol": identifier,
+        # The export names an instrument, never a quoting instrument: an ISIN in
+        # a quote-symbol field is a request for a quote on a security identifier,
+        # so this stays None for the container to resolve. ``market`` is None for
+        # the same reason — extraETF rows carry no venue.
+        "quote_symbol": None,
         "instrument_id": identifier,
         "instrument_id_kind": identifier_kind,
         "instrument_id_checksum_ok": checksum_ok,
         "name": name,
         "instrument_type": instrument_type,
+        # The export's instrument class mapped into the repo's vocabulary, and
+        # None when it is a class this reader does not know. Deliberately not
+        # defaulted to "stock": a guessed asset type is a fabricated fact about
+        # the instrument, where an unknown class is honestly unknown.
         "asset_type": _ASSET_TYPE_BY_EXPORT_TYPE.get(instrument_type.strip().lower()),
         "market": None,
         "currency": currency,
         "price_currency": currency,
         "quantity": _number(quantity),
-        "cost_price": _optional_number(
-            row["Kaufpreis"], field="Kaufpreis", row_number=number
-        ),
-        "market_price": _optional_number(
-            row["Aktueller Kurs"], field="Aktueller Kurs", row_number=number
-        ),
-        "source_market_value": _optional_number(
-            row["Aktueller Wert"], field="Aktueller Wert", row_number=number
-        ),
-        "fx_rate": _optional_number(
-            row["Wechselkurs"], field="Wechselkurs", row_number=number
-        ),
-        "region": row["Region"] or None,
-        "country": row["Land"] or None,
-        "sector": row["Sektor"] or None,
+        "cost_price": _optional_number(row["Kaufpreis"], field="Kaufpreis", row_number=number),
+        "market_price": _optional_number(row["Aktueller Kurs"], field="Aktueller Kurs", row_number=number),
+        "source_market_value": _optional_number(row["Aktueller Wert"], field="Aktueller Wert", row_number=number),
+        "fx_rate": _optional_number(row["Wechselkurs"], field="Wechselkurs", row_number=number),
+        "region": _optional_text(row, "Region", number),
+        "country": _optional_text(row, "Land", number),
+        "sector": _optional_text(row, "Sektor", number),
         "portfolio_id": portfolio_id,
-        "portfolio_name": row["Portfolioname"] or None,
-        "updated_at": as_of,
+        "portfolio_name": _optional_text(row, "Portfolioname", number),
+        # No observation time exists in this format, so the repo's "when was this
+        # observed" field stays empty rather than borrowing the file's mtime,
+        # which any copy, sync or restore rewrites.
+        "updated_at": None,
+        "source_mtime": as_of,
     }
 
 
-def _parse_movement(
-    header: tuple[str, ...], cells: list[str], number: int
-) -> dict[str, Any]:
+def _parse_movement(header: tuple[str, ...], cells: list[str], number: int) -> dict[str, Any]:
     """Convert one transactions row into a movement.
 
     Args:
@@ -438,22 +518,15 @@ def _parse_movement(
     transaction_date = _required(row, "Datum", number)
     match = _DATE_PATTERN.fullmatch(transaction_date)
     if match is None:
-        raise ExtraEtfFormatError(
-            f"row {number}: Datum is not a DD.MM.YYYY date: {transaction_date!r}"
-        )
+        raise ExtraEtfFormatError(f"row {number}: Datum is not a DD.MM.YYYY date: {transaction_date!r}")
     day, month, year = (int(part) for part in match.groups())
     try:
         booked_on = datetime(year, month, day).date().isoformat()
     except ValueError as exc:
-        raise ExtraEtfFormatError(
-            f"row {number}: Datum is not a real date: {transaction_date!r}"
-        ) from exc
+        raise ExtraEtfFormatError(f"row {number}: Datum is not a real date: {transaction_date!r}") from exc
     currency = _required(row, "Währung", number).upper()
     if not _CURRENCY_PATTERN.fullmatch(currency):
-        raise ExtraEtfFormatError(
-            f"row {number}: Währung is not a three-letter currency code: "
-            f"{row['Währung']!r}"
-        )
+        raise ExtraEtfFormatError(f"row {number}: Währung is not a three-letter currency code: {row['Währung']!r}")
     identifier, identifier_kind, checksum_ok = _describe_identifier(row["ISIN"])
     quantity = _parse_decimal(row["Anzahl"], field="Anzahl", row_number=number)
     if quantity is None:
@@ -474,19 +547,37 @@ def _parse_movement(
         "fees": _optional_number(row["Gebühren"], field="Gebühren", row_number=number),
         "taxes": _optional_number(row["Steuern"], field="Steuern", row_number=number),
         "currency": currency,
-        "fx_rate": _optional_number(
-            row["Wechselkurs"], field="Wechselkurs", row_number=number
-        ),
-        "accrued_interest": _optional_number(
-            row["Stückzinsen"], field="Stückzinsen", row_number=number
-        ),
+        "fx_rate": _optional_number(row["Wechselkurs"], field="Wechselkurs", row_number=number),
+        "accrued_interest": _optional_number(row["Stückzinsen"], field="Stückzinsen", row_number=number),
         "portfolio_id": _required(row, "Portfolio ID", number),
-        "portfolio_name": row["Portfolioname"] or None,
+        "portfolio_name": _optional_text(row, "Portfolioname", number),
     }
 
 
+def _optional_text(row: dict[str, str], column: str, number: int) -> str | None:
+    """Return an optional text column, refusing corruption.
+
+    Args:
+        row: The aligned row.
+        column: The column to read.
+        number: The row's line number, for error messages.
+
+    Returns:
+        The value, or ``None`` when the field is blank.
+
+    Raises:
+        ExtraEtfFormatError: If the value carries control characters.
+    """
+    value = row[column]
+    if not value:
+        return None
+    if any(ord(character) < 32 for character in value):
+        raise ExtraEtfFormatError(f"row {number}: {column} carries control characters")
+    return value
+
+
 def _required(row: dict[str, str], column: str, number: int) -> str:
-    """Return a column's value, refusing an empty one.
+    """Return a column's value, refusing an empty or corrupt one.
 
     Args:
         row: The aligned row.
@@ -497,11 +588,17 @@ def _required(row: dict[str, str], column: str, number: int) -> str:
         The non-empty value.
 
     Raises:
-        ExtraEtfFormatError: If the value is empty.
+        ExtraEtfFormatError: If the value is empty or carries control
+            characters. Control characters are refused for the same reason
+            :func:`src.portfolio.config.parse_settings` refuses them in a source
+            label: they are corruption, and text carrying them does not
+            round-trip.
     """
     value = row[column]
     if not value:
         raise ExtraEtfFormatError(f"row {number}: {column} is empty")
+    if any(ord(character) < 32 for character in value):
+        raise ExtraEtfFormatError(f"row {number}: {column} carries control characters")
     return value
 
 
@@ -567,16 +664,23 @@ def _parse_decimal(raw: str, *, field: str, row_number: int) -> Decimal | None:
         or (comma and not fraction.isdigit())
     ):
         raise ExtraEtfFormatError(
-            f"row {row_number}: {field} has ambiguous separators: {raw!r}; expected "
-            f"German formatting such as 1.386,608"
+            f"row {row_number}: {field} has ambiguous separators: {raw!r}; expected German formatting such as 1.386,608"
         )
     digits = "".join(groups) + (f".{fraction}" if comma else "")
     try:
-        return Decimal(f"{sign}{digits}")
+        value = Decimal(f"{sign}{digits}")
     except InvalidOperation as exc:  # pragma: no cover - guarded by the checks above
+        raise ExtraEtfFormatError(f"row {row_number}: {field} is not a number: {raw!r}") from exc
+    try:
+        # Probe the wire format's precision here, while the row is still known.
+        # Handing an unrepresentable magnitude to the formatter would surface as
+        # a bare decimal.InvalidOperation, which is not the documented error.
+        value.quantize(_WIRE_QUANTUM)
+    except InvalidOperation as exc:
         raise ExtraEtfFormatError(
-            f"row {row_number}: {field} is not a number: {raw!r}"
+            f"row {row_number}: {field} carries more precision than a position can represent: {raw!r}"
         ) from exc
+    return value
 
 
 def _describe_identifier(raw: str) -> tuple[str, str, bool | None]:
@@ -620,10 +724,7 @@ def _isin_checksum_ok(value: str) -> bool:
     Returns:
         ``True`` when the Luhn-style check digit is valid.
     """
-    digits = "".join(
-        str(ord(character) - 55) if character.isalpha() else character
-        for character in value
-    )
+    digits = "".join(str(ord(character) - 55) if character.isalpha() else character for character in value)
     total = 0
     for index, character in enumerate(reversed(digits)):
         digit = int(character)
@@ -639,10 +740,11 @@ def _number(value: Decimal) -> float:
     """Return a wire-ready float, quantized as the connector path does.
 
     Args:
-        value: The parsed value.
+        value: A value already probed by :func:`_parse_decimal`, which applies
+            this same quantization so it cannot raise here.
 
     Returns:
         The value as a float, quantized to eight decimal places to match
         :func:`src.portfolio.normalization.normalize_position`.
     """
-    return float(value.quantize(Decimal("0.00000001")))
+    return float(value.quantize(_WIRE_QUANTUM))

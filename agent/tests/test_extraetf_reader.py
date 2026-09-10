@@ -208,9 +208,7 @@ def test_unreadable_number_is_refused(unreadable):
 
 
 def test_blank_optional_fields_are_none_rather_than_zero():
-    export = parse_export(
-        _holdings_export(_holding(kaufpreis="", kurs="", wert="", wechselkurs=""))
-    )
+    export = parse_export(_holdings_export(_holding(kaufpreis="", kurs="", wert="", wechselkurs="")))
 
     (position,) = export.require_positions()
     assert position["cost_price"] is None
@@ -237,10 +235,12 @@ def test_transactions_export_yields_movements_and_never_positions():
     )
 
     assert export.kind == "transactions"
-    assert export.positions == ()
-    assert export.movements[0]["movement"] == "Kauf"
-    assert export.movements[0]["movement_kind"] == "buy"
-    assert [m["movement_kind"] for m in export.movements] == [
+    with pytest.raises(ExtraEtfFormatError, match="movements, not positions"):
+        export.require_positions()
+    movements = export.require_movements()
+    assert movements[0]["movement"] == "Kauf"
+    assert movements[0]["movement_kind"] == "buy"
+    assert [m["movement_kind"] for m in movements] == [
         "buy",
         "sell",
         "dividend",
@@ -248,12 +248,12 @@ def test_transactions_export_yields_movements_and_never_positions():
         "transfer_out",
     ]
     # A dividend row carries a quantity of its own; it must never become a holding.
-    assert export.movements[2]["quantity"] == pytest.approx(0.5)
-    assert export.movements[2]["taxes"] == pytest.approx(0.45)
-    assert all("asset_type" not in movement for movement in export.movements)
-    assert all("accrued_interest" in movement for movement in export.movements)
-    assert export.movements[0]["date"] == "2026-09-01"
-    assert export.movements[0]["accrued_interest"] == pytest.approx(0.0)
+    assert movements[2]["quantity"] == pytest.approx(0.5)
+    assert movements[2]["taxes"] == pytest.approx(0.45)
+    assert all("asset_type" not in movement for movement in movements)
+    assert all("accrued_interest" in movement for movement in movements)
+    assert movements[0]["date"] == "2026-09-01"
+    assert movements[0]["accrued_interest"] == pytest.approx(0.0)
 
 
 def test_a_transactions_export_refuses_to_pose_as_a_portfolio():
@@ -266,9 +266,11 @@ def test_a_transactions_export_refuses_to_pose_as_a_portfolio():
 def test_unknown_transaction_type_is_carried_through_not_invented():
     export = parse_export(_transactions_export(_movement(transaktion="Steuer")))
 
-    assert export.positions == ()
-    assert export.movements[0]["movement"] == "Steuer"
-    assert export.movements[0]["movement_kind"] is None
+    with pytest.raises(ExtraEtfFormatError, match="movements, not positions"):
+        export.require_positions()
+    (movement,) = export.require_movements()
+    assert movement["movement"] == "Steuer"
+    assert movement["movement_kind"] is None
 
 
 def test_invalid_transaction_date_is_refused():
@@ -310,9 +312,7 @@ def test_unattributable_holding_identifier_is_refused(identifier):
 
 
 def test_invalid_isin_check_digit_is_reported_not_enforced():
-    export = parse_export(
-        _holdings_export(_holding(isin=VALID_ISIN), _holding(isin=PLACEHOLDER_ISIN))
-    )
+    export = parse_export(_holdings_export(_holding(isin=VALID_ISIN), _holding(isin=PLACEHOLDER_ISIN)))
 
     valid, placeholder = export.require_positions()
     assert valid["instrument_id_checksum_ok"] is True
@@ -348,9 +348,7 @@ def test_unknown_column_makes_the_export_unrecognisable():
     header = ";".join([*HOLDINGS_COLUMNS, "Neue Spalte"])
     body = ";".join([*(row[column] for column in HOLDINGS_COLUMNS), "x"])
 
-    with pytest.raises(
-        ExtraEtfFormatError, match="unexpected columns: \\['Neue Spalte'\\]"
-    ):
+    with pytest.raises(ExtraEtfFormatError, match="unexpected columns: \\['Neue Spalte'\\]"):
         parse_export(f"{header}\n{body}\n")
 
 
@@ -387,9 +385,7 @@ def test_reordered_columns_do_not_mis_align_values():
 
 
 def test_duplicate_rows_are_preserved_rather_than_merged():
-    export = parse_export(
-        _holdings_export(_holding(anzahl="1,0000"), _holding(anzahl="2,0000"))
-    )
+    export = parse_export(_holdings_export(_holding(anzahl="1,0000"), _holding(anzahl="2,0000")))
 
     assert [position["quantity"] for position in export.require_positions()] == [
         pytest.approx(1.0),
@@ -423,7 +419,11 @@ def test_as_of_comes_from_the_file_mtime_and_is_labelled(tmp_path):
     assert export.as_of_source == "file_mtime"
     assert export.as_of == expected
     assert export.source_path == path
-    assert export.require_positions()[0]["updated_at"] == expected
+    (position,) = export.require_positions()
+    # The file's mtime is reported as the file's mtime, and never laundered into
+    # the field every connector fills with a real observation time.
+    assert position["source_mtime"] == expected
+    assert position["updated_at"] is None
 
 
 def test_bare_text_reports_no_observation_time():
@@ -431,7 +431,9 @@ def test_bare_text_reports_no_observation_time():
 
     assert export.as_of is None
     assert export.as_of_source == "unavailable"
-    assert export.require_positions()[0]["updated_at"] is None
+    (position,) = export.require_positions()
+    assert position["updated_at"] is None
+    assert position["source_mtime"] is None
 
 
 def test_an_absent_as_of_cannot_claim_an_origin():
@@ -456,6 +458,132 @@ def test_missing_file_is_refused(tmp_path):
         read_export(tmp_path / "absent.csv")
 
 
+def test_a_record_folded_across_lines_is_refused_rather_than_aligned():
+    """A stray quote makes csv fold the next line in; the fold must not land.
+
+    The folded record still has the right field count, so an arity check alone
+    passes: one instrument's quantity and value get grafted onto another's
+    identity while a whole position disappears. That is a plausible-looking
+    portfolio, so the fold is refused. Verified against the unfixed reader,
+    which returned 3 positions totalling 3000.0 for this 4-position file.
+    """
+    document = (
+        ";".join(HOLDINGS_COLUMNS) + "\n"
+        "US0378331005;Apple Inc.;Aktie;10,0000;150,00;190,00;1.900,00;EUR;1,00;Nordamerika;USA;Technologie;Mein Depot;1000001\n"
+        'DE0007100000;"Zwei;ETF;5,0000;100,00;110,00;550,00;EUR;1,00;Welt;;;Mein Depot;1000001\n'
+        'IE00B4L5Y983;Three";ETF;7,0000;100,00;110,00;770,00;EUR;1,00;Welt;;;Mein Depot;1000001\n'
+        "FR0000131104;Four;ETF;3,0000;100,00;110,00;330,00;EUR;1,00;Welt;;;Mein Depot;1000001\n"
+    )
+
+    with pytest.raises(ExtraEtfFormatError, match="spans more than one line"):
+        parse_export(document)
+
+
+def test_a_stray_quote_that_swallows_the_tail_is_refused():
+    """An unbalanced quote in the last column absorbs every following line."""
+    document = _holdings_export(_holding(), _holding(isin="DE0007100000"))
+    document = document.replace("Example broker;1000001", 'Example broker;"1000001', 1)
+
+    with pytest.raises(ExtraEtfFormatError, match="spans more than one line"):
+        parse_export(document)
+
+
+def test_an_over_long_field_is_refused_with_the_documented_error():
+    """csv raises its own error for an over-long field; callers must not see it."""
+    row = ";".join(["US0378331005", "x" * 140_000, *list(_holding().values())[2:]])
+
+    with pytest.raises(ExtraEtfFormatError, match="not readable as CSV"):
+        parse_export(_export(HOLDINGS_COLUMNS, []) + row + "\n")
+
+
+def test_unrepresentable_precision_is_refused_not_raised_as_decimal_error():
+    """A magnitude the wire format cannot carry is a format error, not a crash."""
+    with pytest.raises(ExtraEtfFormatError, match="more precision than a position"):
+        parse_export(_holdings_export(_holding(anzahl="1" + "0" * 30 + ",0")))
+
+
+def test_control_characters_in_text_fields_are_refused():
+    with pytest.raises(ExtraEtfFormatError, match="control characters"):
+        parse_export(_holdings_export(_holding(name="Apple\x00Inc")))
+
+    with pytest.raises(ExtraEtfFormatError, match="control characters"):
+        parse_export(_holdings_export(_holding(portfolio="Mein\x1fDepot")))
+
+
+def test_require_movements_refuses_a_holdings_export():
+    export = parse_export(_holdings_export(_holding()))
+
+    with pytest.raises(ExtraEtfFormatError, match="holds positions, not movements"):
+        export.require_movements()
+    assert len(export.require_positions()) == 1
+
+
+def test_the_crypto_transactions_shape_from_the_report_is_read():
+    """The Bitpanda transactions export identifies crypto by bare symbol only.
+
+    Ground truth from the anonymized samples: the same asset is ``BTC_to_EUR``
+    in the holdings export and bare ``BTC`` with ``Typ=Fremdwährung`` in the
+    transactions export. Resolving those onto one another is the container's
+    job, so the reader reports the divergence rather than inventing a base
+    asset: a movement keeps the export's own label and is flagged as an
+    unresolved raw symbol.
+    """
+    document = _export(
+        TRANSACTIONS_COLUMNS,
+        [
+            _movement(
+                isin="BTC",
+                name="Bitcoin",
+                instrument_type="Fremdwährung",
+                anzahl="0,001234",
+                preis="60.000,00",
+                portfolio="Example crypto wallet",
+                portfolio_id="1000002",
+            ),
+            _movement(
+                isin="ETH",
+                name="Ethereum",
+                instrument_type="Fremdwährung",
+                transaktion="Einbuchung",
+                anzahl="0,100000",
+                preis="2.500,00",
+                gebuehren="2,50",
+                portfolio="Example crypto wallet",
+                portfolio_id="1000002",
+            ),
+        ],
+    )
+
+    export = parse_export(document)
+
+    first, second = export.require_movements()
+    assert first["instrument_id"] == "BTC"
+    assert first["instrument_id_kind"] == "raw_symbol"
+    assert first["instrument_id_checksum_ok"] is None
+    assert first["quantity"] == pytest.approx(0.001234)
+    assert first["price"] == pytest.approx(60000.0)
+    assert second["movement_kind"] == "transfer_in"
+    assert second["fees"] == pytest.approx(2.5)
+    with pytest.raises(ExtraEtfFormatError, match="movements, not positions"):
+        export.require_positions()
+
+
+def test_a_period_grouped_value_is_read_as_german_by_convention():
+    """``1.900`` is 1900, because the export is German and nothing says otherwise.
+
+    This reading is a convention of the format rather than a deduction — the
+    same bytes could be 1.9 in a US-locale file — so it is pinned here to keep
+    the behaviour deliberate. A file round-tripped through a US locale is caught
+    by its other values, which stop looking like German thousands.
+    """
+    export = parse_export(_holdings_export(_holding(kaufpreis="1.900", kurs="110.123", wert="1.900")))
+
+    (position,) = export.require_positions()
+    assert position["cost_price"] == pytest.approx(1900.0)
+    assert position["market_price"] == pytest.approx(110123.0)
+    assert position["source_market_value"] == pytest.approx(1900.0)
+
+
 def test_reader_imports_only_the_standard_library():
     """No network, no broker SDK, no order path can be reached from here."""
     import ast
@@ -468,12 +596,7 @@ def test_reader_imports_only_the_standard_library():
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
             roots.update(alias.name.split(".")[0] for alias in node.names)
-        elif (
-            isinstance(node, ast.ImportFrom)
-            and node.level == 0
-            and node.module
-            and node.module != "__future__"
-        ):
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module and node.module != "__future__":
             roots.add(node.module.split(".")[0])
 
     assert roots == {
