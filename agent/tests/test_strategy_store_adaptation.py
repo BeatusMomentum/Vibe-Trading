@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import pytest
 
 from src.strategy_store.adaptation import (
@@ -16,6 +18,11 @@ from src.strategy_store.models import (
     ArtifactType,
     ValidationStatus,
 )
+from src.strategy_discovery.models import (
+    EvidenceRow,
+    classify_quality,
+    coverage_days_from_ranges,
+)
 from src.strategy_store.store import InMemoryStrategyStore
 
 
@@ -27,6 +34,29 @@ def _reset_store(tmp_path):
     shared._store = SqliteStrategyStore(db_path=tmp_path / "test.db")
     yield
     shared._store = None
+
+
+HEALTHY_RANGES = ("2023-01 to 2025-12", "2026-01 to 2026-01")
+TODAY_FRESH = date(2026, 1, 31)
+TODAY_STALE = TODAY_FRESH + timedelta(days=180)
+
+
+def _evidence(
+    *, trades: int = 20, date_ranges: tuple[str, ...] = HEALTHY_RANGES
+) -> tuple[EvidenceRow, ...]:
+    """One evidence row for the parent, adequate and fresh unless told otherwise."""
+    coverage = coverage_days_from_ranges(date_ranges)
+    return (
+        EvidenceRow(
+            strategy_id="sdm:parent",
+            regime="bull_market",
+            trades_in_regime=trades,
+            date_ranges=date_ranges,
+            evidence_quality=classify_quality(trades, coverage),
+            evidence_stage="backtest",
+            provenance="/tmp/run",
+        ),
+    )
 
 
 SIGNAL = "close > sma(20)"
@@ -115,7 +145,13 @@ class TestRegisterAdaptation:
     def test_new_universe_same_name_succeeds(self) -> None:
         store = InMemoryStrategyStore()
         parent_id = store.register_artifact(_strategy(artifact_id=""))
-        child_id = register_adaptation(store, parent_id, AdaptationPatch(universe="SP500"))
+        child_id = register_adaptation(
+            store,
+            parent_id,
+            AdaptationPatch(universe="SP500"),
+            parent_evidence=_evidence(),
+            today=TODAY_FRESH,
+        )
         child = store.get_artifact(child_id)
         parent = store.get_artifact(parent_id)
         assert child is not None
@@ -131,9 +167,21 @@ class TestRegisterAdaptation:
     def test_same_universe_same_name_raises_duplicate(self) -> None:
         store = InMemoryStrategyStore()
         parent_id = store.register_artifact(_strategy(artifact_id=""))
-        register_adaptation(store, parent_id, AdaptationPatch(name="momentum_weekly"))
+        register_adaptation(
+            store,
+            parent_id,
+            AdaptationPatch(name="momentum_weekly"),
+            parent_evidence=_evidence(),
+            today=TODAY_FRESH,
+        )
         with pytest.raises(ValueError, match="already exists"):
-            register_adaptation(store, parent_id, AdaptationPatch(name="momentum_weekly"))
+            register_adaptation(
+                store,
+                parent_id,
+                AdaptationPatch(name="momentum_weekly"),
+                parent_evidence=_evidence(),
+                today=TODAY_FRESH,
+            )
 
 
 class TestSqliteDerivedFromRoundtrip:
@@ -142,7 +190,13 @@ class TestSqliteDerivedFromRoundtrip:
 
         store = get_store()
         parent_id = store.register_artifact(_strategy(artifact_id=""))
-        child_id = register_adaptation(store, parent_id, AdaptationPatch(universe="SP500"))
+        child_id = register_adaptation(
+            store,
+            parent_id,
+            AdaptationPatch(universe="SP500"),
+            parent_evidence=_evidence(),
+            today=TODAY_FRESH,
+        )
         fetched = store.get_artifact(child_id)
         assert fetched is not None
         assert fetched.derived_from == parent_id
@@ -151,3 +205,117 @@ class TestSqliteDerivedFromRoundtrip:
         assert fetched.run_dir is None
         assert fetched.status is ArtifactStatus.CREATED
         assert fetched.signal_definition == SIGNAL
+
+
+class TestChildDoesNotInheritAttestation:
+    """The child may not wear an attestation it never earned.
+
+    ``adapt_artifact`` copies through ``dataclasses.replace``, so every
+    governance field the call does not name survives onto the child. The
+    parent's ``validator`` / ``approver`` name people who signed off on a
+    *different* artifact, and the child is UNVALIDATED with no run behind
+    it — the same inherited-provenance rule that keeps the parent's evidence
+    off the child. Asserted per field, and cross-checked against the fields
+    that are meant to carry forward, so a future blanket reset is caught too.
+    """
+
+    def _signed_parent(self) -> Artifact:
+        return _strategy(
+            validator="Val",
+            approver="Cho",
+            artifact_version="3",
+            model_version="gpt-x-2025",
+            validation_status=ValidationStatus.VALIDATED,
+            validation_date="2026-01-05T00:00:00+00:00",
+            model_tier=None,
+            intended_use="CSI300 momentum sleeve",
+            limitations="thin coverage before 2015",
+        )
+
+    def test_attestation_fields_are_cleared(self) -> None:
+        parent = self._signed_parent()
+        child = adapt_artifact(parent, AdaptationPatch(universe="SP500"))
+
+        assert child.validation_status is ValidationStatus.UNVALIDATED
+        assert child.validation_date is None
+        assert child.validator is None, "child claims an independent validator it never had"
+        assert child.approver is None, "child claims a sign-off it never received"
+        assert child.artifact_version is None, "child is version 1 of its own lineage"
+        assert child.model_version is None, "no model has generated the child's code yet"
+
+    def test_authorship_and_declared_use_still_carry_forward(self) -> None:
+        """The reset must be surgical: ownership and scope are not attestations."""
+        parent = self._signed_parent()
+        child = adapt_artifact(parent, AdaptationPatch(universe="SP500"))
+
+        assert child.developer == parent.developer
+        assert child.owner == parent.owner
+        assert child.intended_use == parent.intended_use
+        assert child.limitations == parent.limitations
+
+    def test_cleared_child_is_not_a_four_eyes_violation(self) -> None:
+        """A same-person dev/approve pair must not survive the copy either."""
+        from src.strategy_store.models import is_four_eyes_violation
+
+        parent = _strategy(developer="Ada", approver="Ada")
+        assert is_four_eyes_violation(parent)
+        assert not is_four_eyes_violation(adapt_artifact(parent, AdaptationPatch(universe="SP500")))
+
+
+class TestEvidenceGateSitsOnTheWritePath:
+    """``parent_adaptation_blockers`` has to be reachable from the write, not
+    just from a caller who remembers to ask.
+
+    The gate inputs are keyword-only and required, so a caller cannot skip
+    the check by forgetting it — the call does not typecheck or run without
+    them. These tests pin the refusal itself rather than the signature, so
+    the guarantee survives a refactor of how the inputs arrive.
+    """
+
+    def test_stale_parent_evidence_refuses_the_write(self) -> None:
+        store = InMemoryStrategyStore()
+        parent_id = store.register_artifact(_strategy(artifact_id=""))
+        before = len(store.list_artifacts())
+
+        with pytest.raises(AdaptationError, match="stale-evidence"):
+            register_adaptation(
+                store,
+                parent_id,
+                AdaptationPatch(universe="SP500"),
+                parent_evidence=_evidence(),
+                today=TODAY_STALE,
+            )
+
+        assert len(store.list_artifacts()) == before, "refused adaptation still wrote a child"
+
+    def test_insufficient_parent_evidence_refuses_the_write(self) -> None:
+        store = InMemoryStrategyStore()
+        parent_id = store.register_artifact(_strategy(artifact_id=""))
+
+        with pytest.raises(AdaptationError, match="insufficient-evidence"):
+            register_adaptation(
+                store,
+                parent_id,
+                AdaptationPatch(universe="SP500"),
+                parent_evidence=(),
+                today=TODAY_FRESH,
+            )
+
+    def test_gate_inputs_are_required(self) -> None:
+        """Omitting them is a TypeError, not a silent unguarded write."""
+        store = InMemoryStrategyStore()
+        parent_id = store.register_artifact(_strategy(artifact_id=""))
+
+        with pytest.raises(TypeError):
+            register_adaptation(store, parent_id, AdaptationPatch(universe="SP500"))
+
+    def test_missing_parent_is_reported_before_the_gate(self) -> None:
+        store = InMemoryStrategyStore()
+        with pytest.raises(AdaptationError, match="not found"):
+            register_adaptation(
+                store,
+                "art_missing",
+                AdaptationPatch(universe="SP500"),
+                parent_evidence=(),
+                today=TODAY_FRESH,
+            )
