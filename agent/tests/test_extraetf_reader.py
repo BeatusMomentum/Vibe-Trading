@@ -393,6 +393,28 @@ def test_duplicate_rows_are_preserved_rather_than_merged():
     ]
 
 
+def test_one_instrument_under_two_portfolios_stays_two_positions():
+    """Every export covers all depots, so one ISIN under two Portfolio IDs is
+    the normal case rather than a conflict the reader is allowed to resolve."""
+    export = parse_export(
+        _holdings_export(
+            _holding(anzahl="10,0000", portfolio="Example bank", portfolio_id="1000001"),
+            _holding(anzahl="25,0000", portfolio="Example broker", portfolio_id="1000002"),
+        )
+    )
+
+    positions = export.require_positions()
+    assert [position["quantity"] for position in positions] == [
+        pytest.approx(10.0),
+        pytest.approx(25.0),
+    ]
+    assert [position["portfolio_id"] for position in positions] == ["1000001", "1000002"]
+    assert [position["portfolio_name"] for position in positions] == [
+        "Example bank",
+        "Example broker",
+    ]
+
+
 def test_empty_holdings_export_is_valid_and_not_an_error():
     """An empty portfolio and an unreadable file are different states."""
     export = parse_export(_holdings_export())
