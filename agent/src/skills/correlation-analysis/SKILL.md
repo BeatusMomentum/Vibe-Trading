@@ -239,7 +239,7 @@ def sector_clustering(
 ### Comparison of Three Linkage Methods
 
 | Method | Feature | Best Use Case | Weakness |
-|------|------|---------|------|
+|------|------|---------|--------|
 | Ward | Minimizes within-cluster variance, gives compact clusters | **Default recommendation**, stock-sector discovery | Works best for spherical clusters, weaker for irregular shapes |
 | Complete | Uses maximum pairwise distance, conservative | When high within-cluster similarity is required | Can produce elongated clusters |
 | Average | Uses average distance, compromise approach | General analysis where compactness is not the top priority | Sensitive to noise |
@@ -369,9 +369,10 @@ def engle_granger_coint(
         Test results and spread series
     """
     # Step 1: estimate the cointegrating vector with OLS.
-    x_const = sm.add_constant(x)
+    x_reg = x.rename("x")
+    x_const = sm.add_constant(x_reg)
     ols = sm.OLS(y, x_const).fit()
-    hedge_ratio = ols.params[x.name if x.name else "x"]
+    hedge_ratio = ols.params["x"]
     intercept = ols.params["const"]
     residuals = ols.resid
 
