@@ -1306,6 +1306,7 @@ class TestSchemaMigration:
         assert fetched.limitations is None
         assert fetched.validation_status == ValidationStatus.UNVALIDATED
         assert fetched.validation_date is None
+        assert fetched.derived_from is None
 
     def test_old_db_still_writable_after_migration(self, tmp_path):
         """New writes (including governance fields) work on a migrated DB."""
@@ -1363,8 +1364,8 @@ class TestSchemaMigration:
         store = SqliteStrategyStore(db_path=db_path)
         # First open already ran the migration once (in __init__ -> _init_db).
         # Run it again explicitly, twice more, to prove idempotency.
-        store._migrate_governance_columns()
-        store._migrate_governance_columns()
+        store._migrate_artifact_columns()
+        store._migrate_artifact_columns()
 
         columns = [
             row["name"]
@@ -1374,6 +1375,7 @@ class TestSchemaMigration:
         assert len(columns) == len(set(columns))
         assert columns.count("validation_status") == 1
         assert columns.count("developer") == 1
+        assert columns.count("derived_from") == 1
 
         # Store still functions normally after repeated migration calls.
         fetched = store.get_artifact("art_legacy001")
