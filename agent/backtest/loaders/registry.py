@@ -10,6 +10,7 @@ of import order.
 from __future__ import annotations
 
 import logging
+from threading import Lock
 from typing import Any, Type
 
 from backtest.loaders.base import NoAvailableSourceError
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 LOADER_REGISTRY: dict[str, Type[Any]] = {}
 
 _registered = False
+_registration_lock = Lock()
 
 # Canonical set of accepted data-source names: every registered loader plus the
 # ``"auto"`` cross-market selector. Single source of truth shared by the backtest
@@ -75,6 +77,7 @@ def _ensure_registered() -> None:
     """Import every known loader module so ``@register`` decorators fire.
 
     Safe to call multiple times — only runs the imports once.
+    Concurrent callers wait until the import pass finishes.
     Loaders whose dependencies are missing (e.g. ``akshare`` not installed)
     are silently skipped.
     """
@@ -85,43 +88,48 @@ def _ensure_registered() -> None:
     global _registered
     if _registered:
         return
-    _registered = True
 
-    _loader_modules = [
-        "backtest.loaders.tushare",
-        "backtest.loaders.okx",
-        "backtest.loaders.nobitex",
-        "backtest.loaders.wallex",
-        "backtest.loaders.binance_loader",
-        "backtest.loaders.yfinance_loader",
-        "backtest.loaders.akshare_loader",
-        "backtest.loaders.baostock_loader",
-        "backtest.loaders.tencent_loader",
-        "backtest.loaders.mootdx_loader",
-        "backtest.loaders.ccxt_loader",
-        "backtest.loaders.futu",
-        "backtest.loaders.eastmoney_loader",
-        "backtest.loaders.sina_loader",
-        "backtest.loaders.stooq_loader",
-        "backtest.loaders.yahoo_loader",
-        "backtest.loaders.finnhub_loader",
-        "backtest.loaders.alphavantage_loader",
-        "backtest.loaders.tiingo_loader",
-        "backtest.loaders.fmp_loader",
-        "backtest.loaders.qveris_loader",  # QVERIS-INTEGRATION
-        "backtest.loaders.india_broker_loader",
-        "backtest.loaders.pykrx_loader",
-        "backtest.loaders.longbridge",
-        "backtest.loaders.mt5_loader",
-        "backtest.loaders.tickerall_loader",
-        "backtest.loaders.local_loader",
-    ]
-    import importlib
-    for mod in _loader_modules:
-        try:
-            importlib.import_module(mod)
-        except Exception:
-            pass
+    with _registration_lock:
+        if _registered:
+            return
+
+        _loader_modules = [
+            "backtest.loaders.tushare",
+            "backtest.loaders.okx",
+            "backtest.loaders.nobitex",
+            "backtest.loaders.wallex",
+            "backtest.loaders.binance_loader",
+            "backtest.loaders.yfinance_loader",
+            "backtest.loaders.akshare_loader",
+            "backtest.loaders.baostock_loader",
+            "backtest.loaders.tencent_loader",
+            "backtest.loaders.mootdx_loader",
+            "backtest.loaders.ccxt_loader",
+            "backtest.loaders.futu",
+            "backtest.loaders.eastmoney_loader",
+            "backtest.loaders.sina_loader",
+            "backtest.loaders.stooq_loader",
+            "backtest.loaders.yahoo_loader",
+            "backtest.loaders.finnhub_loader",
+            "backtest.loaders.alphavantage_loader",
+            "backtest.loaders.tiingo_loader",
+            "backtest.loaders.fmp_loader",
+            "backtest.loaders.qveris_loader",  # QVERIS-INTEGRATION
+            "backtest.loaders.india_broker_loader",
+            "backtest.loaders.pykrx_loader",
+            "backtest.loaders.longbridge",
+            "backtest.loaders.mt5_loader",
+            "backtest.loaders.tickerall_loader",
+            "backtest.loaders.local_loader",
+        ]
+        import importlib
+
+        for mod in _loader_modules:
+            try:
+                importlib.import_module(mod)
+            except Exception:
+                pass
+        _registered = True
 
 
 # Sources that must NEVER silently fall through to a network loader when the

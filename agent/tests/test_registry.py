@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
+import importlib
+from threading import Event
+from types import ModuleType
 from unittest.mock import patch
 
 import pytest
 
+from backtest.loaders import registry
 from backtest.loaders.base import DataLoaderProtocol, NoAvailableSourceError
 from backtest.loaders.registry import (
     _ensure_registered,
@@ -16,7 +21,6 @@ from backtest.loaders.registry import (
     register,
     resolve_loader,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers — fake loaders
@@ -108,6 +112,64 @@ class TestRegisterDecorator:
         with patch.dict(LOADER_REGISTRY, {}, clear=True):
             result = register(_FakeAvailableLoader)
             assert result is _FakeAvailableLoader
+
+
+@pytest.mark.parametrize("entrypoint", ["market", "source"])
+def test_concurrent_cold_readers_wait_for_registration(
+    monkeypatch: pytest.MonkeyPatch, entrypoint: str
+) -> None:
+    """Cold readers must wait for one complete import pass, including skips."""
+    importing = Event()
+    release = Event()
+    reader_started = Event()
+    imports: list[str] = []
+    real_import = importlib.import_module
+
+    def controlled_import(name: str, package: str | None = None) -> ModuleType:
+        if not name.startswith("backtest.loaders."):
+            return real_import(name, package)
+        imports.append(name)
+        if name == "backtest.loaders.tushare":
+            importing.set()
+            if not release.wait(5):
+                raise RuntimeError("loader import was never released")
+        if name == "backtest.loaders.okx":
+            raise ImportError("optional dependency unavailable")
+        if name == "backtest.loaders.local_loader":
+            register(_FakeAvailableLoader)
+        return ModuleType(name)
+
+    def read_loader() -> type:
+        reader_started.set()
+        if entrypoint == "source":
+            return get_loader_cls_with_fallback(_FakeAvailableLoader.name)
+        return type(resolve_loader("a_share"))
+
+    monkeypatch.setattr(registry, "_registered", False)
+    monkeypatch.setattr(registry, "LOADER_REGISTRY", {})
+    monkeypatch.setitem(FALLBACK_CHAINS, "a_share", [_FakeAvailableLoader.name])
+    monkeypatch.setattr(importlib, "import_module", controlled_import)
+
+    # Keep initialization inside its first import while a public reader enters.
+    # Always release the importer before joining threads or restoring patches.
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        initializer = pool.submit(_ensure_registered)
+        try:
+            assert importing.wait(5)
+            reader = pool.submit(read_loader)
+            assert reader_started.wait(5)
+            with pytest.raises(TimeoutError):
+                reader.result(timeout=0.1)
+        finally:
+            release.set()
+        initializer.result(timeout=5)
+        assert reader.result(timeout=5) is _FakeAvailableLoader
+
+    assert registry._registered is True
+    assert len(imports) == len(set(imports)), "initialization ran more than once"
+    completed_imports = imports[:]
+    assert read_loader() is _FakeAvailableLoader
+    assert imports == completed_imports, "warm readers must not repeat imports"
 
 
 # ---------------------------------------------------------------------------
