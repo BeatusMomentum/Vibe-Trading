@@ -380,6 +380,29 @@ def test_unknown_column_makes_the_export_unrecognisable():
         parse_export(f"{header}\n{body}\n")
 
 
+def test_the_refusal_names_both_known_column_sets():
+    """#1170 asked for the refusal to name the sets it knows, not only the nearest
+    one, so the error says what *is* supported rather than only what is wrong."""
+    with pytest.raises(ExtraEtfFormatError) as caught:
+        parse_export("Datum;ISIN;Name;Typ;Ausschüttung;Währung;Portfolioname;Portfolio ID\n")
+
+    message = str(caught.value)
+    assert "holdings export" in message and "transactions export" in message
+    assert "Kaufpreis" in message and "Stückzinsen" in message
+
+
+def test_a_fiat_pair_is_not_labelled_crypto():
+    """``Währung / Krypto`` covers foreign-exchange pairs, so a ``USD_to_EUR`` row
+    is described by its shape and given no asset class at all."""
+    export = parse_export(
+        _holdings_export(_holding(isin="USD_to_EUR", name="US Dollar / Euro", instrument_type="Währung / Krypto"))
+    )
+
+    position = export.require_positions()[0]
+    assert position["asset_type"] is None
+    assert position["instrument_id"] == "USD_to_EUR"
+
+
 def test_missing_column_makes_the_export_unrecognisable():
     columns = [column for column in HOLDINGS_COLUMNS if column != "Anzahl"]
     row = _holding()
