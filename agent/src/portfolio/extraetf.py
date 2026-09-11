@@ -22,18 +22,22 @@ a transfer is never mistaken for a trade.
 
 **A holdings export carries no date.** The format has no snapshot column, so
 freshness can only come from the file's own modification time, and the export
-says so through ``as_of_source``. No position carries an observation time: a
-row's ``source_mtime`` is the file's modification time, kept under a name no
-connector ever fills with a real fetch time, and ``updated_at`` is ``None``
-rather than a copy of it. Copying or syncing an export rewrites that mtime, so
-``source_mtime`` reports when the *file* last changed and nothing more.
+exposes it as ``source_mtime``, with ``as_of_source`` recording where it came
+from. It is named for what it is — a file's modification time, not an
+observation time and not a snapshot date. No position carries an observation
+time at all: ``updated_at`` is ``None`` rather than a copy of the file's mtime.
+Copying or syncing an export rewrites that mtime, so ``source_mtime`` reports
+when the *file* last changed and nothing more.
 
 **Validation fails closed.** A row this reader does not recognise raises
 :class:`ExtraEtfFormatError` instead of being skipped: an import computed from
 90% of a portfolio reads as entirely plausible, whereas a refused import is
 merely annoying. That covers ragged rows, records that span more than one
 physical line, unknown or missing columns, unreadable or contradictory numbers,
-empty required fields, and text fields carrying control characters.
+numbers carrying more precision than the output can hold, empty required
+fields, text fields carrying control characters, an instrument listed twice
+under one portfolio, and a transaction whose label or identifier cannot be read
+as anything this format documents.
 
 The number rule is precise, because it is the one that can change a position's
 size by orders of magnitude. A comma is the decimal separator and a period may
@@ -50,10 +54,12 @@ through a US-locale spreadsheet is caught by the *other* values in it rather
 than by this one.
 
 Rows are read by column name, so a reordered export cannot mis-align a value
-into the wrong column. Rows are **not** merged or de-duplicated: two rows for
-the same instrument in one portfolio are returned as two positions, because
-summing them silently and dropping one silently are both wrong, and which one
-the user meant is not this module's call.
+into the wrong column. Rows are **never** merged or de-duplicated silently. The
+same instrument under two different portfolio IDs is two real positions and is
+left alone. The same instrument twice under **one** portfolio ID is refused:
+the two rows could be one lot listed twice or two genuine lots, and a caller
+that sums them double-counts the position while a caller that keeps one drops
+the other, so the file is rejected rather than guessed at.
 
 The emitted position uses the portfolio package's own field names so a container
 can consume it, and carries the export's remaining columns alongside them. It
@@ -148,11 +154,14 @@ _NUMERAL_PATTERN = re.compile(r"^[0-9.,]+$")
 
 #: ``Typ`` is an instrument class, not a row shape: a class this reader does not
 #: know still describes a real position, so it is carried through with
-#: ``asset_type`` left ``None`` rather than refused or guessed at.
+#: ``asset_type`` left ``None`` rather than refused or guessed at. extraETF's
+#: ``Währung / Krypto`` class is deliberately absent from this map: it covers
+#: foreign-exchange pairs as well as crypto, so a ``USD_to_EUR`` row would end up
+#: labelled a crypto holding — a guess about the asset class, which is precisely
+#: what leaving the class unset exists to avoid.
 _ASSET_TYPE_BY_EXPORT_TYPE = {
     "etf": "etf",
     "aktie": "stock",
-    "währung / krypto": "crypto",
 }
 
 _MOVEMENT_KIND_BY_TRANSACTION = {
@@ -180,17 +189,20 @@ class ExtraEtfExport:
 
     Attributes:
         kind: Which of the two extraETF formats this file is.
-        as_of: ISO-8601 observation time, or ``None`` when it could not be read.
-        as_of_source: Where ``as_of`` came from — ``"file_mtime"`` for a file
-            read from disk, ``"unavailable"`` for bare text with no timestamp.
-            A holdings export has no date column, so ``file_mtime`` is an
-            inference from the file's own modification time and is labelled as
-            one rather than presented as a recorded snapshot date.
+        source_mtime: ISO-8601 modification time of the file this export came
+            from, or ``None`` when it was parsed from bare text. It is a file's
+            timestamp, not an observation time, and it is named so that nothing
+            downstream can read it as a snapshot date.
+        as_of_source: Where ``source_mtime`` came from — ``"file_mtime"`` for a
+            file read from disk, ``"unavailable"`` for bare text with no
+            timestamp. A holdings export has no date column, so ``file_mtime``
+            is an inference from the file's own modification time and is
+            labelled as one rather than presented as a recorded snapshot date.
         source_path: The file this export was read from, when there was one.
     """
 
     kind: ExportKind
-    as_of: str | None
+    source_mtime: str | None
     as_of_source: Literal["file_mtime", "unavailable"]
     source_path: Path | None
     _positions: tuple[dict[str, Any], ...] = ()
@@ -231,7 +243,7 @@ class ExtraEtfExport:
 def read_export(path: str | Path) -> ExtraEtfExport:
     """Read and parse one extraETF export file.
 
-    The file's modification time becomes ``as_of`` with
+    The file's modification time becomes ``source_mtime`` with
     ``as_of_source="file_mtime"``, because neither export format carries a
     snapshot-observation column.
 
@@ -254,15 +266,15 @@ def read_export(path: str | Path) -> ExtraEtfExport:
             modified = os.fstat(handle.fileno()).st_mtime
     except OSError as exc:
         raise ExtraEtfFormatError(f"cannot read export {resolved}: {exc}") from exc
-    as_of = datetime.fromtimestamp(modified, tz=timezone.utc).isoformat()
-    return parse_export(data, source_path=resolved, as_of=as_of, as_of_source="file_mtime")
+    source_mtime = datetime.fromtimestamp(modified, tz=timezone.utc).isoformat()
+    return parse_export(data, source_path=resolved, source_mtime=source_mtime, as_of_source="file_mtime")
 
 
 def parse_export(
     data: str | bytes,
     *,
     source_path: str | Path | None = None,
-    as_of: str | None = None,
+    source_mtime: str | None = None,
     as_of_source: Literal["file_mtime", "unavailable"] = "unavailable",
 ) -> ExtraEtfExport:
     """Parse one extraETF export from text or raw bytes.
@@ -270,8 +282,9 @@ def parse_export(
     Args:
         data: The export contents, as text or as raw file bytes.
         source_path: The originating file, recorded for provenance only.
-        as_of: ISO-8601 observation time, when the caller knows one.
-        as_of_source: Where ``as_of`` came from.
+        source_mtime: ISO-8601 modification time of the originating file, when
+            the caller knows one.
+        as_of_source: Where ``source_mtime`` came from.
 
     Returns:
         The parsed export. An export with a header and no data rows is valid and
@@ -282,28 +295,59 @@ def parse_export(
             or any row cannot be read without guessing.
         ValueError: If ``as_of_source`` claims an origin for an absent ``as_of``.
     """
-    if as_of is None and as_of_source != "unavailable":
+    if source_mtime is None and as_of_source != "unavailable":
         raise ValueError(
-            "as_of_source cannot claim where an observation time came from when there is no observation time"
+            "as_of_source cannot claim where a source modification time came from "
+            "when there is no source modification time"
         )
     if as_of_source not in ("file_mtime", "unavailable"):
         raise ValueError(f"as_of_source must be 'file_mtime' or 'unavailable', not {as_of_source!r}")
     text = _decode(data)
     kind, header, rows = _read_rows(text)
     if kind == "holdings":
-        positions = tuple(_parse_holding(header, cells, number, as_of=as_of) for number, cells in rows)
+        positions = tuple(_parse_holding(header, cells, number, source_mtime=source_mtime) for number, cells in rows)
+        _refuse_duplicate_positions(positions, rows)
         movements: tuple[dict[str, Any], ...] = ()
     else:
         positions = ()
         movements = tuple(_parse_movement(header, cells, number) for number, cells in rows)
     return ExtraEtfExport(
         kind=kind,
-        as_of=as_of,
+        source_mtime=source_mtime,
         as_of_source=as_of_source,
         source_path=Path(source_path) if source_path is not None else None,
         _positions=positions,
         _movements=movements,
     )
+
+
+def _refuse_duplicate_positions(positions: tuple[dict[str, Any], ...], rows: list[tuple[int, list[str]]]) -> None:
+    """Refuse one instrument listed twice under a single portfolio ID.
+
+    The same instrument under two different portfolio IDs is two genuine
+    positions and is left alone. The same instrument twice under **one**
+    portfolio ID is a file whose meaning is ambiguous — one lot listed twice, or
+    two real lots — and a caller that sums those rows double-counts the position
+    while a caller that keeps one drops the other, so the file is refused.
+
+    Args:
+        positions: The parsed holdings positions, in row order.
+        rows: The ``(line number, cells)`` pairs those positions came from.
+
+    Raises:
+        ExtraEtfFormatError: If a ``(portfolio_id, instrument_id)`` pair repeats.
+    """
+    seen: dict[tuple[str, str], int] = {}
+    for (number, _cells), position in zip(rows, positions, strict=True):
+        key = (position["portfolio_id"], position["instrument_id"])
+        first = seen.get(key)
+        if first is not None:
+            raise ExtraEtfFormatError(
+                f"row {number}: {position['instrument_id']} is listed twice under portfolio "
+                f"{position['portfolio_id']!r} (first at row {first}); a repeated instrument in one "
+                f"portfolio cannot be summed or collapsed without inventing a position"
+            )
+        seen[key] = number
 
 
 def _decode(data: str | bytes) -> str:
@@ -455,20 +499,25 @@ def _detect_kind(header: tuple[str, ...]) -> ExportKind:
     missing = [column for column in expected if column not in columns]
     unexpected = [column for column in header if column not in expected]
     raise ExtraEtfFormatError(
-        "export header is not a recognised extraETF format; against the "
-        f"{'transactions' if transactions_like else 'holdings'} format, missing "
+        "export header is not a recognised extraETF format; this reader knows two, the "
+        f"holdings export {list(_HOLDINGS_COLUMNS)} and the transactions export "
+        f"{list(_TRANSACTIONS_COLUMNS)}; the nearest of those is "
+        f"{'transactions' if transactions_like else 'holdings'}, against which missing "
         f"columns: {missing or 'none'}, unexpected columns: {unexpected or 'none'}"
     )
 
 
-def _parse_holding(header: tuple[str, ...], cells: list[str], number: int, *, as_of: str | None) -> dict[str, Any]:
+def _parse_holding(
+    header: tuple[str, ...], cells: list[str], number: int, *, source_mtime: str | None
+) -> dict[str, Any]:
     """Convert one holdings row into a position.
 
     Args:
         header: The export's column names, which key the row's fields.
         cells: The row's fields.
         number: The row's line number, for error messages.
-        as_of: The export's observation time, mirrored onto the position.
+        source_mtime: The export file's modification time, mirrored onto the
+            position under a name that cannot be read as an observation time.
 
     Returns:
         One position in the portfolio wire shape.
@@ -529,7 +578,7 @@ def _parse_holding(header: tuple[str, ...], cells: list[str], number: int, *, as
         # observed" field stays empty rather than borrowing the file's mtime,
         # which any copy, sync or restore rewrites.
         "updated_at": None,
-        "source_mtime": as_of,
+        "source_mtime": source_mtime,
     }
 
 
@@ -550,6 +599,14 @@ def _parse_movement(header: tuple[str, ...], cells: list[str], number: int) -> d
     """
     row = dict(zip(header, cells, strict=True))
     movement = _required(row, "Transaktion", number)
+    movement_kind = _MOVEMENT_KIND_BY_TRANSACTION.get(movement.strip().lower())
+    if movement_kind is None:
+        raise ExtraEtfFormatError(
+            f"row {number}: Transaktion {movement!r} is none of the labels this format documents "
+            f"({', '.join(sorted(_MOVEMENT_KIND_BY_TRANSACTION))}); a movement whose kind is unknown "
+            f"is refused rather than carried through unlabelled, because a dividend, a fee and a "
+            f"cash movement all look alike once the label is dropped"
+        )
     transaction_date = _required(row, "Datum", number)
     match = _DATE_PATTERN.fullmatch(transaction_date)
     if match is None:
@@ -563,6 +620,12 @@ def _parse_movement(header: tuple[str, ...], cells: list[str], number: int) -> d
     if not _CURRENCY_PATTERN.fullmatch(currency):
         raise ExtraEtfFormatError(f"row {number}: Währung is not a three-letter currency code: {row['Währung']!r}")
     identifier, identifier_kind, checksum_ok = _describe_identifier(row["ISIN"])
+    if identifier_kind == "unknown":
+        raise ExtraEtfFormatError(
+            f"row {number}: the ISIN column is empty, so the movement cannot be attributed to an "
+            f"instrument; a cash or fee row carrying no instrument is not a movement this reader "
+            f"can represent"
+        )
     quantity = _parse_decimal(row["Anzahl"], field="Anzahl", row_number=number)
     if quantity is None:
         raise ExtraEtfFormatError(f"row {number}: Anzahl is empty")
@@ -570,13 +633,13 @@ def _parse_movement(header: tuple[str, ...], cells: list[str], number: int) -> d
         "broker": BROKER,
         "source": "extraetf_export",
         "date": booked_on,
-        "instrument_id": identifier or None,
+        "instrument_id": identifier,
         "instrument_id_kind": identifier_kind,
         "instrument_id_checksum_ok": checksum_ok,
         "name": _required(row, "Name", number),
         "instrument_type": _required(row, "Typ", number),
         "movement": movement,
-        "movement_kind": _MOVEMENT_KIND_BY_TRANSACTION.get(movement.strip().lower()),
+        "movement_kind": movement_kind,
         "quantity": _number(quantity),
         "price": _optional_number(row["Preis"], field="Preis", row_number=number),
         "fees": _optional_number(row["Gebühren"], field="Gebühren", row_number=number),
@@ -710,11 +773,19 @@ def _parse_decimal(raw: str, *, field: str, row_number: int) -> Decimal | None:
         # Probe the wire format's precision here, while the row is still known.
         # Handing an unrepresentable magnitude to the formatter would surface as
         # a bare decimal.InvalidOperation, which is not the documented error.
-        value.quantize(_WIRE_QUANTUM)
+        quantized = value.quantize(_WIRE_QUANTUM)
     except InvalidOperation as exc:
         raise ExtraEtfFormatError(
             f"row {row_number}: {field} carries more precision than a position can represent: {raw!r}"
         ) from exc
+    if quantized != value:
+        # Quantizing also *rounds*, and a discarded rounding is a silently
+        # altered position: 0,000000004 is not zero in the file, so it must not
+        # become an empty position in the output, and 1,123456789 must not lose
+        # its ninth decimal place without saying so.
+        raise ExtraEtfFormatError(
+            f"row {row_number}: {field} carries more precision than a position can represent: {raw!r}"
+        )
     return value
 
 
@@ -775,8 +846,9 @@ def _number(value: Decimal) -> float:
     """Return a wire-ready float, quantized as the connector path does.
 
     Args:
-        value: A value already probed by :func:`_parse_decimal`, which applies
-            this same quantization so it cannot raise here.
+        value: A value already probed by :func:`_parse_decimal`, which proves the
+            value survives this quantization unchanged, so this cannot round or
+            raise.
 
     Returns:
         The value as a float, quantized to eight decimal places to match

@@ -263,14 +263,39 @@ def test_a_transactions_export_refuses_to_pose_as_a_portfolio():
         export.require_positions()
 
 
-def test_unknown_transaction_type_is_carried_through_not_invented():
-    export = parse_export(_transactions_export(_movement(transaktion="Steuer")))
+def test_unknown_transaction_label_is_refused():
+    """A movement whose label is dropped is a movement that means nothing.
 
-    with pytest.raises(ExtraEtfFormatError, match="movements, not positions"):
-        export.require_positions()
+    Carried through with ``movement_kind=None``, a ``Steuer`` row would land in
+    the same bucket as every other unrecognised label, where a dividend, a fee
+    and a cash movement are indistinguishable from each other.
+    """
+    with pytest.raises(ExtraEtfFormatError, match="none of the labels this format documents"):
+        parse_export(_transactions_export(_movement(transaktion="Steuer")))
+
+
+def test_a_movement_without_an_instrument_is_refused():
+    """A blank ISIN is a cash or fee row, not a movement this reader can place.
+
+    Allowing it produced a movement with ``instrument_id=None`` — a movement
+    attributed to no instrument, which is not a position and not a trade.
+    """
+    for blank in ("", "   "):
+        with pytest.raises(ExtraEtfFormatError, match="ISIN column is empty"):
+            parse_export(_transactions_export(_movement(isin=blank)))
+
+
+def test_a_bare_symbol_movement_is_still_read():
+    """The crypto transactions shape carries its own symbol, not an ISIN.
+
+    This is the documented shape for the Bitpanda transactions export, so the
+    stricter movement checks must not refuse it.
+    """
+    export = parse_export(_transactions_export(_movement(isin="BTC", transaktion="Kauf")))
+
     (movement,) = export.require_movements()
-    assert movement["movement"] == "Steuer"
-    assert movement["movement_kind"] is None
+    assert movement["instrument_id"] == "BTC"
+    assert movement["instrument_id_kind"] == "raw_symbol"
 
 
 def test_invalid_transaction_date_is_refused():
@@ -300,7 +325,10 @@ def test_crypto_identity_is_a_pair_not_an_isin():
     assert position["instrument_id"] == "BTC_to_EUR"
     assert position["instrument_id_kind"] == "crypto_pair"
     assert position["instrument_id_checksum_ok"] is None
-    assert position["asset_type"] == "crypto"
+    # ``Währung / Krypto`` is the class extraETF gives FX pairs as well as crypto,
+    # so this reader will not label a position from it: a USD_to_EUR row in this
+    # shape is not a crypto holding.
+    assert position["asset_type"] is None
     assert position["portfolio_id"] == "1000002"
 
 
@@ -384,13 +412,21 @@ def test_reordered_columns_do_not_mis_align_values():
     assert position["portfolio_id"] == "1000001"
 
 
-def test_duplicate_rows_are_preserved_rather_than_merged():
-    export = parse_export(_holdings_export(_holding(anzahl="1,0000"), _holding(anzahl="2,0000")))
+def test_a_repeated_instrument_in_one_portfolio_is_refused():
+    """Two rows for one instrument under one Portfolio ID cannot be read safely.
 
-    assert [position["quantity"] for position in export.require_positions()] == [
-        pytest.approx(1.0),
-        pytest.approx(2.0),
-    ]
+    Summing them double-counts the position; keeping one drops the other. Which
+    of the two the file meant is not this reader's call, so it refuses instead
+    of choosing.
+    """
+    with pytest.raises(ExtraEtfFormatError, match="listed twice under portfolio"):
+        parse_export(_holdings_export(_holding(anzahl="1,0000"), _holding(anzahl="2,0000")))
+
+
+def test_a_repeated_instrument_names_both_rows():
+    """The refusal has to point at the file, not just say no."""
+    with pytest.raises(ExtraEtfFormatError, match="row 3.*first at row 2"):
+        parse_export(_holdings_export(_holding(), _holding(anzahl="2,0000")))
 
 
 def test_one_instrument_under_two_portfolios_stays_two_positions():
@@ -429,7 +465,7 @@ def test_empty_file_is_refused():
             parse_export(empty)
 
 
-def test_as_of_comes_from_the_file_mtime_and_is_labelled(tmp_path):
+def test_source_mtime_comes_from_the_file_and_is_labelled(tmp_path):
     path = tmp_path / "holdings.csv"
     path.write_text(_holdings_export(_holding()), encoding="utf-8")
     stamp = 1_760_000_000
@@ -439,7 +475,7 @@ def test_as_of_comes_from_the_file_mtime_and_is_labelled(tmp_path):
 
     expected = datetime.fromtimestamp(stamp, tz=timezone.utc).isoformat()
     assert export.as_of_source == "file_mtime"
-    assert export.as_of == expected
+    assert export.source_mtime == expected
     assert export.source_path == path
     (position,) = export.require_positions()
     # The file's mtime is reported as the file's mtime, and never laundered into
@@ -448,18 +484,18 @@ def test_as_of_comes_from_the_file_mtime_and_is_labelled(tmp_path):
     assert position["updated_at"] is None
 
 
-def test_bare_text_reports_no_observation_time():
+def test_bare_text_reports_no_source_mtime():
     export = parse_export(_holdings_export(_holding()))
 
-    assert export.as_of is None
+    assert export.source_mtime is None
     assert export.as_of_source == "unavailable"
     (position,) = export.require_positions()
     assert position["updated_at"] is None
     assert position["source_mtime"] is None
 
 
-def test_an_absent_as_of_cannot_claim_an_origin():
-    with pytest.raises(ValueError, match="no observation time"):
+def test_an_absent_source_mtime_cannot_claim_an_origin():
+    with pytest.raises(ValueError, match="no source modification time"):
         parse_export(_holdings_export(_holding()), as_of_source="file_mtime")
 
 
@@ -598,9 +634,40 @@ def test_as_of_source_must_be_one_of_the_two_documented_origins():
     with pytest.raises(ValueError, match="as_of_source must be"):
         parse_export(
             _holdings_export(_holding()),
-            as_of="2026-01-01T00:00:00+00:00",
+            source_mtime="2026-01-01T00:00:00+00:00",
             as_of_source="nonsense",
         )
+
+
+def test_a_quantity_that_rounds_away_is_refused_not_silently_zeroed():
+    """Quantizing to the wire format is a rounding, and a rounding is a change.
+
+    0,000000004 is not zero in the file. Accepting it produced a position whose
+    quantity had become 0.0 — an empty position built out of a real one.
+    """
+    with pytest.raises(ExtraEtfFormatError, match="more precision than a position"):
+        parse_export(_holdings_export(_holding(anzahl="0,000000004")))
+
+
+def test_a_quantity_beyond_the_wire_precision_is_refused():
+    """A ninth decimal place is more than the output can hold, so it is refused
+    rather than rounded away."""
+    for anzahl in ("1,123456789", "12,345678901"):
+        with pytest.raises(ExtraEtfFormatError, match="more precision than a position"):
+            parse_export(_holdings_export(_holding(anzahl=anzahl)))
+
+
+def test_a_quantity_at_the_wire_precision_is_accepted_unchanged():
+    """The boundary itself is representable, so it must not be refused."""
+    export = parse_export(_holdings_export(_holding(anzahl="1,12345678")))
+
+    (position,) = export.require_positions()
+    assert position["quantity"] == pytest.approx(1.12345678)
+
+    # A tiny but representable non-zero quantity survives as itself.
+    export = parse_export(_holdings_export(_holding(anzahl="0,00000001")))
+    (position,) = export.require_positions()
+    assert position["quantity"] > 0
 
 
 def test_a_bom_followed_by_whitespace_still_reads_the_header():
