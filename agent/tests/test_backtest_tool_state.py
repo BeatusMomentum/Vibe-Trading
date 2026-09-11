@@ -10,6 +10,7 @@ and no state file when validation rejects the run before the engine starts.
 from __future__ import annotations
 
 import json
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from unittest.mock import patch
@@ -67,3 +68,15 @@ def test_validation_error_records_no_state(tool_run_dir):
 
     assert envelope["status"] == "error"
     assert not (tool_run_dir / "state.json").exists()
+
+
+def test_timeout_records_state_failed_and_returns_error_envelope(tool_run_dir):
+    with patch("src.tools.backtest_tool.emit_progress"), patch("src.tools.backtest_tool.Runner") as runner_cls:
+        runner_cls.return_value.timeout = 300
+        runner_cls.return_value.execute.side_effect = subprocess.TimeoutExpired(cmd="runner.py", timeout=300)
+        envelope = json.loads(run_backtest(str(tool_run_dir)))
+
+    assert envelope["status"] == "error"
+    assert envelope["error"] == "backtest engine timed out after 300s"
+    state = json.loads((tool_run_dir / "state.json").read_text(encoding="utf-8"))
+    assert state == {"status": "failed", "reason": "backtest engine timed out after 300s"}

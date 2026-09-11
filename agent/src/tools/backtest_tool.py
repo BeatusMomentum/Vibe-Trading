@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 from backtest.loaders.registry import VALID_SOURCES
@@ -56,12 +57,24 @@ def run_backtest(run_dir: str) -> str:
         message=f"running backtest engine (source={source})",
     )
     runner = Runner(timeout=300)
-    result = runner.execute(
-        entry_script,
-        run_path,
-        cwd=agent_root,
-        cli_args=[str(run_path)],
-    )
+    try:
+        result = runner.execute(
+            entry_script,
+            run_path,
+            cwd=agent_root,
+            cli_args=[str(run_path)],
+        )
+    except subprocess.TimeoutExpired:
+        # The lifecycle block below is unreachable on a timeout, so record the
+        # failure here — otherwise the run is indistinguishable from never-run
+        # (the evidence gate fail-closes either way, but the reason is lost).
+        reason = f"backtest engine timed out after {runner.timeout}s"
+        RunStateStore().mark_failure(run_path, reason)
+        return json.dumps({
+            "status": "error",
+            "error": reason,
+            "run_dir": run_dir,
+        }, ensure_ascii=False)
 
     # Record lifecycle status so tool-driven runs are ingestible by the
     # evidence pipeline: refresh_strategy_evidence fail-closes without
