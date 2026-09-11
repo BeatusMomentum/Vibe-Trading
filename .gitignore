@@ -40,6 +40,9 @@ agent/uploads/
 # (auth/ holds the Codex token, connectors/ and connections.json hold broker
 # credentials) or tamper-evident state (live/ holds the hash-chained audit
 # ledger), so a stray `git add -A` here is a credential leak, not just noise.
+# The per-broker config files below were missing until 2026-09-11 even though
+# this comment already claimed them; agent/tests/test_gitignore_runtime_files.py
+# now derives the filename constants from the code and fails on any gap.
 /sessions.db
 /sessions.db-shm
 /sessions.db-wal
@@ -65,9 +68,24 @@ agent/uploads/
 /history/
 /pairing/
 /connections.json
+/trading-connections.json
 /portfolio.json
 /config.yaml
-/strategy_evidence.sqlite3
+/swarm-agent.json
+/strategy_discovery.db
+/alpaca.json
+/binance.json
+/dhan.json
+/etoro.json
+/futu.json
+/ibkr-local.json
+/longbridge.json
+/mt5.json
+/okx.json
+/shoonya.json
+/tiger.json
+/trading212.json
+/zerodha.json
 agent/tests/*_result.json
 .ruff_cache/
 frontend/dist/
