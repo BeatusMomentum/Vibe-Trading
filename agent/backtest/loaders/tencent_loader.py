@@ -143,6 +143,11 @@ class DataLoader:
 
         data = json.loads(raw)
         # Response: {"code":0,"data":{"sh601595":{"day":[["2026-06-01","21.32",...], ...]}}}
+        if data.get("code") not in (0, None) and not data.get("data"):
+            # An error-shaped reply is a failure, not an empty window: None
+            # here would let a throttled reply end the walk mid-pagination
+            # and serve (and cache) a truncated series as complete history.
+            raise ValueError(f"tencent fqkline error reply: code={data.get('code')}")
         stock_data = data.get("data", {})
         if not stock_data:
             return None
@@ -234,7 +239,22 @@ class DataLoader:
                 ) from last_error
 
             if page is None or page.empty:
-                break
+                if not chunks:
+                    break
+                # A mid-walk empty page is ambiguous: the genuine start of
+                # history, or a throttled reply. One re-request decides — a
+                # transient glitch returns data, a genuine boundary stays
+                # empty and terminates the walk.
+                time.sleep(_PAGE_BACKOFF)
+                try:
+                    page = self._request_page(code, start_date, cursor_end)
+                except Exception as exc:  # noqa: BLE001 - transient network jitter
+                    raise ValueError(
+                        f"incomplete tencent history: {code} re-request at "
+                        f"{cursor_end} failed: {exc}"
+                    ) from exc
+                if page is None or page.empty:
+                    break
             chunks.append(page)
 
             # A short page means the walk reached start_date.

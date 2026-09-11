@@ -330,7 +330,9 @@ _LOADER_CACHE_TRUE_VALUES = {"1", "true", "yes", "on"}
 # v5: UK (.L) prices normalized from GBp to GBP (÷100) (#1206).
 # v6: LSE quote currency is fail-closed and per-symbol conversion provenance is
 # persisted. v5 USD/unknown .L entries must never be served as static GBP.
-_LOADER_CACHE_VERSION = 6
+# v7: tencent fqkline paginates backward (#1410) — entries cached under the
+# forward walk hold tail-truncated multi-year series and must never be served.
+_LOADER_CACHE_VERSION = 7
 _LOADER_FRAME_METADATA_ATTRS = ("quote_currency", "currency_conversion")
 
 

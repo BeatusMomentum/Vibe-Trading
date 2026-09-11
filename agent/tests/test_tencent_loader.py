@@ -280,3 +280,63 @@ def test_a_bar_on_the_end_date_itself_is_not_dropped(monkeypatch) -> None:
 
     assert df.index.max() == history.index.max()
     assert len(df) == tencent_loader._PAGE_SIZE + 1
+
+
+def test_error_shaped_reply_raises_instead_of_returning_none(monkeypatch) -> None:
+    """A non-zero-code reply with no payload is a failure, not an empty window."""
+    loader = tencent_loader.DataLoader()
+    payload = json.dumps({"code": 1, "msg": "rate limit"})
+
+    def fake_urlopen(req, timeout=None, **kwargs):  # noqa: ANN001, ANN002
+        return _FakeResponse(payload)
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    with pytest.raises(ValueError, match="error reply"):
+        loader._request_page("600519.SH", "2024-01-01", "2024-06-30")
+
+
+def test_midwalk_empty_page_is_rerequested_before_truncating(monkeypatch) -> None:
+    """A glitched empty mid-walk must not end the walk: one re-request decides."""
+    loader = tencent_loader.DataLoader()
+    history = _history("2020-01-01", tencent_loader._PAGE_SIZE + 10)
+    calls = {"n": 0}
+    sleeps: list[float] = []
+    monkeypatch.setattr(tencent_loader.time, "sleep", sleeps.append)
+
+    def fake_page(code, start, end):  # noqa: ANN001
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return history.iloc[-tencent_loader._PAGE_SIZE:]
+        if calls["n"] == 2:
+            return None
+        return history.iloc[: -tencent_loader._PAGE_SIZE]
+
+    monkeypatch.setattr(loader, "_request_page", fake_page)
+    df = loader._fetch_one("600519.SH", "2020-01-01", "2026-12-31")
+
+    assert calls["n"] == 3
+    assert len(df) == tencent_loader._PAGE_SIZE + 10
+    assert df.index.is_monotonic_increasing
+    assert sleeps == [tencent_loader._PAGE_BACKOFF]
+
+
+def test_midwalk_empty_page_that_persists_ends_the_walk(monkeypatch) -> None:
+    """A genuine data start (e.g. a pre-IPO window) stays empty on re-request."""
+    loader = tencent_loader.DataLoader()
+    history = _history("2020-01-01", tencent_loader._PAGE_SIZE)
+    calls = {"n": 0}
+    sleeps: list[float] = []
+    monkeypatch.setattr(tencent_loader.time, "sleep", sleeps.append)
+
+    def fake_page(code, start, end):  # noqa: ANN001
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return history.iloc[-tencent_loader._PAGE_SIZE:]
+        return None
+
+    monkeypatch.setattr(loader, "_request_page", fake_page)
+    df = loader._fetch_one("600519.SH", "2019-01-01", "2026-12-31")
+
+    assert calls["n"] == 3
+    assert len(df) == tencent_loader._PAGE_SIZE
