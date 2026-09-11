@@ -885,6 +885,12 @@ def _describe_identifier(raw: str) -> tuple[str, str, bool | None]:
         exactly as exported, because it is extraETF's own label and not a
         canonical code — rewriting its case would invent an identity we do not
         own.
+
+        The kind describes the *shape* of the identifier, never its asset class.
+        ``"crypto_pair"`` means the value has extraETF's ``X_to_Y`` pair form, so
+        a foreign-exchange pair such as ``USD_to_EUR`` is described the same way
+        — which is why a ``Währung / Krypto`` row is left with no ``asset_type``
+        rather than being called a crypto holding.
     """
     identifier = raw.strip()
     if not identifier:
