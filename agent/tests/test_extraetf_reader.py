@@ -203,7 +203,7 @@ def test_ambiguous_separator_grouping_is_refused(ambiguous):
 
 @pytest.mark.parametrize("unreadable", ["zwei", "10,00 EUR", "--", ","])
 def test_unreadable_number_is_refused(unreadable):
-    with pytest.raises(ExtraEtfFormatError, match="is not a number|ambiguous|empty"):
+    with pytest.raises(ExtraEtfFormatError, match="is not a number|ambiguous separators"):
         parse_export(_holdings_export(_holding(anzahl=unreadable)))
 
 
@@ -584,17 +584,21 @@ def test_case_mapping_cannot_fabricate_an_isin(identifier):
 
     Each input is eleven characters that upper-case to a twelve-character string
     matching the ISIN shape, and ``aß000000001`` even matches the check digit. So
-    the guard is to refuse them as unattributable holdings, not to read them as
-    ISINs, and the movements path shows they stay raw symbols rather than being
-    rewritten.
+    the guard is to refuse them rather than read them as ISINs — on the holdings
+    path as unattributable, and on the movements path because they are not a
+    symbol either. Neither path rewrites them into a code they are not.
     """
     with pytest.raises(ExtraEtfFormatError, match="neither an ISIN nor"):
         parse_export(_holdings_export(_holding(isin=identifier)))
 
-    export = parse_export(_transactions_export(_movement(isin=identifier, instrument_type="Fremdwährung")))
+    with pytest.raises(ExtraEtfFormatError, match="neither an ISIN nor a crypto symbol"):
+        parse_export(_transactions_export(_movement(isin=identifier, instrument_type="Fremdwährung")))
+
+    # A value that *is* a plain symbol still reads as itself, unrewritten.
+    export = parse_export(_transactions_export(_movement(isin="BTC", instrument_type="Fremdwährung")))
     (movement,) = export.require_movements()
     assert movement["instrument_id_kind"] == "raw_symbol"
-    assert movement["instrument_id"] == identifier
+    assert movement["instrument_id"] == "BTC"
 
 
 def test_a_lowercased_isin_is_still_read_as_an_isin():
@@ -776,3 +780,96 @@ def test_reader_imports_only_the_standard_library():
         "re",
         "typing",
     }
+
+
+def test_a_thousands_group_longer_than_three_digits_is_refused():
+    """``1234.567`` is a US decimal; reading its period as German scales it 1000x.
+
+    The leading group is the one the grouping rule used to skip, and it is the
+    one that decides whether a bare period is a thousands separator at all —
+    German never writes four digits before the first separator.
+    """
+    for value in ("1234.567", "12345.678", "9999.99"):
+        with pytest.raises(ExtraEtfFormatError, match="ambiguous separators"):
+            parse_export(_holdings_export(_holding(kurs=value)))
+
+    # The German spelling of the same magnitude is still accepted.
+    export = parse_export(_holdings_export(_holding(kurs="1.234,567")))
+    assert export.require_positions()[0]["market_price"] == pytest.approx(1234.567)
+
+
+@pytest.mark.parametrize("column", ["kaufpreis", "kurs", "wert", "wechselkurs"])
+def test_extra_precision_is_refused_in_every_holding_number(column):
+    """Precision is a property of the number grammar, not of one column."""
+    with pytest.raises(ExtraEtfFormatError, match="more precision than a position"):
+        parse_export(_holdings_export(_holding(**{column: "1,123456789"})))
+
+
+@pytest.mark.parametrize("column", ["preis", "gebuehren", "steuern", "stueckzinsen"])
+def test_extra_precision_is_refused_in_every_movement_number(column):
+    with pytest.raises(ExtraEtfFormatError, match="more precision than a position"):
+        parse_export(_transactions_export(_movement(**{column: "1,123456789"})))
+
+
+def test_a_value_that_would_change_on_the_way_to_a_float_is_refused():
+    """``float`` holds about seventeen significant digits, so a value past that
+    would arrive with a different magnitude even though it quantized cleanly."""
+    with pytest.raises(ExtraEtfFormatError, match="more precision than a position"):
+        parse_export(_holdings_export(_holding(anzahl="999999999999999,99999999")))
+
+
+def test_case_variant_crypto_pairs_are_one_instrument():
+    """The pair label is extraETF's own, so it is emitted exactly as exported —
+    but two rows differing only in case are one label, and two positions for
+    them would double-count."""
+    with pytest.raises(ExtraEtfFormatError, match="listed twice under portfolio"):
+        parse_export(
+            _holdings_export(
+                _holding(isin="BTC_to_EUR", instrument_type="Währung / Krypto"),
+                _holding(isin="btc_to_eur", instrument_type="Währung / Krypto"),
+            )
+        )
+
+
+def test_a_crypto_pair_keeps_its_exported_case():
+    """Comparison folds case; the emitted value does not."""
+    export = parse_export(_holdings_export(_holding(isin="btc_to_eur", instrument_type="Währung / Krypto")))
+
+    assert export.require_positions()[0]["instrument_id"] == "btc_to_eur"
+
+
+def test_a_movement_identifier_that_is_not_a_symbol_is_refused():
+    """A movement may carry a bare crypto symbol, but not arbitrary text."""
+    for identifier in ("!!!", "hello world", "..", "BTC EUR"):
+        with pytest.raises(ExtraEtfFormatError, match="neither an ISIN nor a crypto symbol"):
+            parse_export(_transactions_export(_movement(isin=identifier)))
+
+
+def test_del_and_c1_characters_are_refused_in_text_and_identity_fields():
+    """Control characters are corruption, not content — DEL and C1 included."""
+    for value in ("A\x7fB", "A\x85B", "A\x1fB", "A\x00B"):
+        with pytest.raises(ExtraEtfFormatError, match="carries control characters"):
+            parse_export(_holdings_export(_holding(name=value)))
+        with pytest.raises(ExtraEtfFormatError, match="carries control characters"):
+            parse_export(_holdings_export(_holding(isin=value)))
+
+
+def test_an_unavailable_origin_cannot_carry_a_timestamp():
+    """Provenance has to agree with itself in both directions."""
+    with pytest.raises(ValueError, match="must agree"):
+        parse_export(
+            _holdings_export(_holding()),
+            source_mtime="2026-01-01T00:00:00+00:00",
+            as_of_source="unavailable",
+        )
+
+
+def test_transaction_labels_are_matched_ignoring_case_and_padding():
+    """The label is German prose rather than a canonical enum, so it is matched
+    case-insensitively, and a padded cell is stripped at the read boundary —
+    while whatever the file did say is what the movement reports."""
+    for label, expected in (("kauf", "buy"), ("KAUF", "buy"), ("Kauf ", "buy"), ("Dividende", "dividend")):
+        export = parse_export(_transactions_export(_movement(transaktion=label)))
+        movement = export.require_movements()[0]
+        assert movement["movement_kind"] == expected
+        assert movement["movement"] == label.strip()

@@ -44,8 +44,10 @@ size by orders of magnitude. A comma is the decimal separator and a period may
 only be a thousands separator, so ``1.386,608`` is 1386.608 and ``12,3456`` is
 12.3456. A value whose separators are US-ordered (``1,234.56``) is refused,
 because reading it as German would be wrong by a thousandfold. A period grouping
-that is not a plain thousands separator (``1.23``, ``1234.56``) is refused too,
-because it is neither a valid German number nor safely a US one. What is *not*
+that is not a plain thousands separator — a first group longer than three
+digits, or a later group that is not exactly three (``1.23``, ``1234.56``,
+``1234.567``) — is refused too, because it is neither a valid German number nor
+safely a US one. What is *not*
 refused is a period-grouped value that is valid German — ``1.900`` is 1900 — and
 that reading is a convention of the format, not a deduction: ``1.900`` could be
 1.9 in a US-locale file, and no amount of parsing can tell the two apart.
@@ -68,9 +70,10 @@ does **not** route the row through
 to guarantee one wire shape, because that function stamps ``updated_at`` with
 the current time — an observation time this reader never made — and defaults an
 unknown instrument class to ``"stock"``. Both are fabrications a file import
-must not make, so the mapping is done here and the divergences are the three
-shown above: ``quote_symbol``'s None, ``asset_type``'s None, and ``updated_at``
-against ``source_mtime``.
+must not make, so the mapping is done here and the divergences are shown above:
+``quote_symbol``'s None, ``asset_type``'s None, ``market``'s None (the
+connector path stamps the broker there), and ``updated_at`` against
+``source_mtime``.
 
 Values are carried as the export reports them rather than repaired: a zero or
 negative quantity, a zero FX rate, and two different portfolio names under one
@@ -151,6 +154,11 @@ _CRYPTO_PAIR_PATTERN = re.compile(r"^[A-Z0-9]{2,12}_to_[A-Z0-9]{2,12}$", re.IGNO
 _CURRENCY_PATTERN = re.compile(r"^[A-Z]{3}$")
 _DATE_PATTERN = re.compile(r"^([0-9]{2})\.([0-9]{2})\.([0-9]{4})$")
 _NUMERAL_PATTERN = re.compile(r"^[0-9.,]+$")
+#: The bare-symbol shape a crypto transactions row carries in its ``ISIN``
+#: column (e.g. ``BTC``). A holdings row must carry an ISIN or a pair label, so
+#: this shape is only accepted for movements — but there it is accepted, and
+#: anything outside it is refused rather than emitted as an identity.
+_SYMBOL_PATTERN = re.compile(r"^[A-Za-z0-9]{1,12}$")
 
 #: ``Typ`` is an instrument class, not a row shape: a class this reader does not
 #: know still describes a real position, so it is carried through with
@@ -293,13 +301,15 @@ def parse_export(
     Raises:
         ExtraEtfFormatError: If the header is not one of the two known formats,
             or any row cannot be read without guessing.
-        ValueError: If ``as_of_source`` claims an origin for an absent ``as_of``.
+        ValueError: If ``as_of_source`` and ``source_mtime`` disagree.
     """
     if source_mtime is None and as_of_source != "unavailable":
         raise ValueError(
             "as_of_source cannot claim where a source modification time came from "
             "when there is no source modification time"
         )
+    if source_mtime is not None and as_of_source == "unavailable":
+        raise ValueError("as_of_source is 'unavailable' but a source modification time was given; the two must agree")
     if as_of_source not in ("file_mtime", "unavailable"):
         raise ValueError(f"as_of_source must be 'file_mtime' or 'unavailable', not {as_of_source!r}")
     text = _decode(data)
@@ -339,7 +349,13 @@ def _refuse_duplicate_positions(positions: tuple[dict[str, Any], ...], rows: lis
     """
     seen: dict[tuple[str, str], int] = {}
     for (number, _cells), position in zip(rows, positions, strict=True):
-        key = (position["portfolio_id"], position["instrument_id"])
+        # The identifier is emitted exactly as exported — rewriting a crypto
+        # pair's case would invent an identity this module does not own — but
+        # comparison folds case, because the pair shape is matched
+        # case-insensitively: BTC_to_EUR and btc_to_eur are the same label, and
+        # two positions for them would double-count. ISINs are already canonical
+        # upper-case, so folding changes nothing for them.
+        key = (position["portfolio_id"], position["instrument_id"].casefold())
         first = seen.get(key)
         if first is not None:
             raise ExtraEtfFormatError(
@@ -526,7 +542,7 @@ def _parse_holding(
         ExtraEtfFormatError: If the row cannot be read without guessing.
     """
     row = dict(zip(header, cells, strict=True))
-    identifier, identifier_kind, checksum_ok = _describe_identifier(row["ISIN"])
+    identifier, identifier_kind, checksum_ok = _describe_identifier(_identifier_cell(row, number))
     if identifier_kind not in {"isin", "crypto_pair"}:
         raise ExtraEtfFormatError(
             f"row {number}: {row['ISIN']!r} is neither an ISIN nor an extraETF crypto "
@@ -619,12 +635,21 @@ def _parse_movement(header: tuple[str, ...], cells: list[str], number: int) -> d
     currency = _required(row, "Währung", number).upper()
     if not _CURRENCY_PATTERN.fullmatch(currency):
         raise ExtraEtfFormatError(f"row {number}: Währung is not a three-letter currency code: {row['Währung']!r}")
-    identifier, identifier_kind, checksum_ok = _describe_identifier(row["ISIN"])
+    identifier, identifier_kind, checksum_ok = _describe_identifier(_identifier_cell(row, number))
     if identifier_kind == "unknown":
         raise ExtraEtfFormatError(
             f"row {number}: the ISIN column is empty, so the movement cannot be attributed to an "
             f"instrument; a cash or fee row carrying no instrument is not a movement this reader "
             f"can represent"
+        )
+    if identifier_kind == "raw_symbol" and not _SYMBOL_PATTERN.fullmatch(identifier):
+        # A movement carries a bare symbol for crypto, so ``raw_symbol`` is
+        # allowed here where a holdings row would refuse it — but only when it
+        # looks like a symbol. Anything else is refused rather than carried as
+        # an identity it does not have.
+        raise ExtraEtfFormatError(
+            f"row {number}: {identifier!r} is neither an ISIN nor a crypto symbol, so the movement "
+            f"cannot be attributed to an instrument"
         )
     quantity = _parse_decimal(row["Anzahl"], field="Anzahl", row_number=number)
     if quantity is None:
@@ -652,6 +677,46 @@ def _parse_movement(header: tuple[str, ...], cells: list[str], number: int) -> d
     }
 
 
+def _has_control_characters(value: str) -> bool:
+    """Report whether text carries characters that are corruption, not content.
+
+    C0 controls (below 32), DEL and the C1 block are all refused. None of them
+    is part of an exported name, label or symbol, and a field carrying one is
+    damaged text rather than data.
+
+    Args:
+        value: The raw field text.
+
+    Returns:
+        ``True`` when the text carries a control character.
+    """
+    return any(ord(character) < 32 or 0x7F <= ord(character) <= 0x9F for character in value)
+
+
+def _identifier_cell(row: dict[str, str], number: int) -> str:
+    """Return the ``ISIN`` column, refusing text that cannot identify anything.
+
+    The identifier column is read through :func:`_describe_identifier` rather
+    than through :func:`_required`, because a crypto row carries a symbol here
+    instead of a code. That path performs no corruption check of its own, so
+    without this a symbol carrying control characters would be emitted verbatim.
+
+    Args:
+        row: The aligned row.
+        number: The row's line number, for error messages.
+
+    Returns:
+        The raw identifier text, unmodified.
+
+    Raises:
+        ExtraEtfFormatError: If the text carries control characters.
+    """
+    value = row["ISIN"]
+    if _has_control_characters(value):
+        raise ExtraEtfFormatError(f"row {number}: ISIN carries control characters")
+    return value
+
+
 def _optional_text(row: dict[str, str], column: str, number: int) -> str | None:
     """Return an optional text column, refusing corruption.
 
@@ -669,7 +734,7 @@ def _optional_text(row: dict[str, str], column: str, number: int) -> str | None:
     value = row[column]
     if not value:
         return None
-    if any(ord(character) < 32 for character in value):
+    if _has_control_characters(value):
         raise ExtraEtfFormatError(f"row {number}: {column} carries control characters")
     return value
 
@@ -695,7 +760,7 @@ def _required(row: dict[str, str], column: str, number: int) -> str:
     value = row[column]
     if not value:
         raise ExtraEtfFormatError(f"row {number}: {column} is empty")
-    if any(ord(character) < 32 for character in value):
+    if _has_control_characters(value):
         raise ExtraEtfFormatError(f"row {number}: {column} carries control characters")
     return value
 
@@ -755,9 +820,13 @@ def _parse_decimal(raw: str, *, field: str, row_number: int) -> Decimal | None:
             f"row {row_number}: {field} reads as a US-formatted number: {raw!r}; "
             f"extraETF exports use German formatting such as 1.386,608"
         )
+    # The leading group is capped at three digits too. A plain ``1234.567`` is a
+    # US decimal, and reading its period as a thousands separator would scale the
+    # value by a thousand — the misread this whole rule exists to refuse.
     groups = whole.split(".")
     if (
         any(not group.isdigit() for group in groups)
+        or (len(groups) > 1 and len(groups[0]) > 3)
         or any(len(group) != 3 for group in groups[1:])
         or (comma and not fraction.isdigit())
     ):
@@ -783,6 +852,13 @@ def _parse_decimal(raw: str, *, field: str, row_number: int) -> Decimal | None:
         # altered position: 0,000000004 is not zero in the file, so it must not
         # become an empty position in the output, and 1,123456789 must not lose
         # its ninth decimal place without saying so.
+        raise ExtraEtfFormatError(
+            f"row {row_number}: {field} carries more precision than a position can represent: {raw!r}"
+        )
+    if Decimal(repr(float(value))) != value:
+        # ``float`` holds about seventeen significant digits, so a value with
+        # more integer digits than that still changes magnitude on the way to
+        # the wire format even though it quantized cleanly.
         raise ExtraEtfFormatError(
             f"row {row_number}: {field} carries more precision than a position can represent: {raw!r}"
         )
