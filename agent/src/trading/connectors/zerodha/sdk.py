@@ -48,6 +48,10 @@ KITE_HIST_BASE = "https://api.kite.trade"
 #: India Standard Time (Kite timestamps are IST).
 _IST = timezone(timedelta(hours=5, minutes=30))
 
+#: Prefix of every order id the local paper simulator issues. ``cancel_order``
+#: refuses any other id, because only these orders exist in the simulation.
+_PAPER_ORDER_PREFIX = "PAPER-"
+
 _PAPER_ONLY_ERROR = (
     "Zerodha connector is paper-only: Kite exposes no runtime paper/live "
     "discriminator (a live token reaches the real account), so live order "
@@ -593,7 +597,7 @@ def place_order(
 
     return {
         "status": "ok",
-        "order_id": f"PAPER-{clean_symbol}-{buy_or_sell}-{qty}",
+        "order_id": f"{_PAPER_ORDER_PREFIX}{clean_symbol}-{buy_or_sell}-{qty}",
         "symbol": clean_symbol,
         "side": side_token.lower(),
         "profile": cfg.profile,
@@ -627,6 +631,17 @@ def cancel_order(
     clean_id = str(order_id or "").strip()
     if not clean_id:
         return {"status": "error", "error": "order_id is required"}
+    if not clean_id.startswith(_PAPER_ORDER_PREFIX):
+        # The paper profile reads the real account, so a live order's id can
+        # arrive here; acknowledging it would report a cancel that never
+        # happened while the real order keeps working.
+        return {
+            "status": "error",
+            "error": (
+                f"order {clean_id!r} was not issued by this paper simulator, so it "
+                "cannot be cancelled here; cancel a real order with the broker"
+            ),
+        }
 
     return {
         "status": "ok",

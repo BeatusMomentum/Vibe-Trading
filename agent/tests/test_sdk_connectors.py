@@ -874,10 +874,22 @@ def test_in_broker_paper_place_order_simulated_locally(mod, Config) -> None:
 
 @pytest.mark.parametrize("mod, Config", [(dh, dh.DhanConfig), (sh, sh.ShoonyaConfig)])
 def test_in_broker_paper_cancel_order_simulated(mod, Config) -> None:
-    result = mod.cancel_order(Config(profile="paper"), "ORD1")
+    placed = mod.place_order(Config(profile="paper"), symbol="RELIANCE", side="buy", quantity=10)
+    result = mod.cancel_order(Config(profile="paper"), placed["order_id"])
     assert result["status"] == "ok"
     assert result["cancelled"] is True
     assert result["is_paper"] is True
+
+
+@pytest.mark.parametrize("mod, Config", [(dh, dh.DhanConfig), (sh, sh.ShoonyaConfig)])
+def test_in_broker_paper_cancel_refuses_an_order_it_never_issued(mod, Config) -> None:
+    """The paper profile reads the real account, so a live order id can reach
+    the simulated cancel; acknowledging it would report a cancel that never
+    happened while the real order keeps working."""
+    result = mod.cancel_order(Config(profile="paper"), "ORD1")
+    assert result["status"] == "error"
+    assert "cancelled" not in result
+    assert "not issued by this paper simulator" in result["error"]
 
 
 def test_in_broker_order_ops_classified_write() -> None:
