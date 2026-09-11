@@ -10,6 +10,7 @@ of import order.
 from __future__ import annotations
 
 import logging
+from threading import Lock
 from typing import Any, Type
 
 from backtest.loaders.base import NoAvailableSourceError
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 LOADER_REGISTRY: dict[str, Type[Any]] = {}
 
 _registered = False
+_registration_lock = Lock()
 
 # Canonical set of accepted data-source names: every registered loader plus the
 # ``"auto"`` cross-market selector. Single source of truth shared by the backtest
@@ -75,6 +77,7 @@ def _ensure_registered() -> None:
     """Import every known loader module so ``@register`` decorators fire.
 
     Safe to call multiple times — only runs the imports once.
+    Concurrent callers wait until the import pass finishes.
     Loaders whose dependencies are missing (e.g. ``akshare`` not installed)
     are silently skipped.
     """
@@ -85,43 +88,48 @@ def _ensure_registered() -> None:
     global _registered
     if _registered:
         return
-    _registered = True
 
-    _loader_modules = [
-        "backtest.loaders.tushare",
-        "backtest.loaders.okx",
-        "backtest.loaders.nobitex",
-        "backtest.loaders.wallex",
-        "backtest.loaders.binance_loader",
-        "backtest.loaders.yfinance_loader",
-        "backtest.loaders.akshare_loader",
-        "backtest.loaders.baostock_loader",
-        "backtest.loaders.tencent_loader",
-        "backtest.loaders.mootdx_loader",
-        "backtest.loaders.ccxt_loader",
-        "backtest.loaders.futu",
-        "backtest.loaders.eastmoney_loader",
-        "backtest.loaders.sina_loader",
-        "backtest.loaders.stooq_loader",
-        "backtest.loaders.yahoo_loader",
-        "backtest.loaders.finnhub_loader",
-        "backtest.loaders.alphavantage_loader",
-        "backtest.loaders.tiingo_loader",
-        "backtest.loaders.fmp_loader",
-        "backtest.loaders.qveris_loader",  # QVERIS-INTEGRATION
-        "backtest.loaders.india_broker_loader",
-        "backtest.loaders.pykrx_loader",
-        "backtest.loaders.longbridge",
-        "backtest.loaders.mt5_loader",
-        "backtest.loaders.tickerall_loader",
-        "backtest.loaders.local_loader",
-    ]
-    import importlib
-    for mod in _loader_modules:
-        try:
-            importlib.import_module(mod)
-        except Exception:
-            pass
+    with _registration_lock:
+        if _registered:
+            return
+
+        _loader_modules = [
+            "backtest.loaders.tushare",
+            "backtest.loaders.okx",
+            "backtest.loaders.nobitex",
+            "backtest.loaders.wallex",
+            "backtest.loaders.binance_loader",
+            "backtest.loaders.yfinance_loader",
+            "backtest.loaders.akshare_loader",
+            "backtest.loaders.baostock_loader",
+            "backtest.loaders.tencent_loader",
+            "backtest.loaders.mootdx_loader",
+            "backtest.loaders.ccxt_loader",
+            "backtest.loaders.futu",
+            "backtest.loaders.eastmoney_loader",
+            "backtest.loaders.sina_loader",
+            "backtest.loaders.stooq_loader",
+            "backtest.loaders.yahoo_loader",
+            "backtest.loaders.finnhub_loader",
+            "backtest.loaders.alphavantage_loader",
+            "backtest.loaders.tiingo_loader",
+            "backtest.loaders.fmp_loader",
+            "backtest.loaders.qveris_loader",  # QVERIS-INTEGRATION
+            "backtest.loaders.india_broker_loader",
+            "backtest.loaders.pykrx_loader",
+            "backtest.loaders.longbridge",
+            "backtest.loaders.mt5_loader",
+            "backtest.loaders.tickerall_loader",
+            "backtest.loaders.local_loader",
+        ]
+        import importlib
+
+        for mod in _loader_modules:
+            try:
+                importlib.import_module(mod)
+            except Exception:
+                pass
+        _registered = True
 
 
 # Sources that must NEVER silently fall through to a network loader when the
@@ -156,38 +164,69 @@ _NO_NETWORK_FALLBACK_SOURCES: frozenset[str] = frozenset(
 # that must be politely throttled; Finnhub/AlphaVantage/Tiingo/FMP are key-gated
 # REST fallbacks placed deeper in the chain.
 FALLBACK_CHAINS: dict[str, list[str]] = {
-    "a_share":   ["tencent", "mootdx", "eastmoney", "baostock", "akshare", "tushare", "local"],
-    "us_equity": ["yahoo", "stooq", "sina", "eastmoney", "yfinance", "tiingo", "fmp", "finnhub", "alphavantage", "longbridge", "akshare", "local"],
+    "a_share": [
+        "tencent",
+        "mootdx",
+        "eastmoney",
+        "baostock",
+        "akshare",
+        "tushare",
+        "local",
+    ],
+    "us_equity": [
+        "yahoo",
+        "stooq",
+        "sina",
+        "eastmoney",
+        "yfinance",
+        "tiingo",
+        "fmp",
+        "finnhub",
+        "alphavantage",
+        "longbridge",
+        "akshare",
+        "local",
+    ],
     # HK: tencent leads (no observed IP ban); akshare (Eastmoney-backed)
     # precedes the Yahoo-SDK family, which is blocked from mainland IPs;
     # tushare hk_daily is key-gated.
-    "hk_equity": ["tencent", "eastmoney", "yahoo", "futu", "akshare", "yfinance", "tushare", "longbridge", "local"],
+    "hk_equity": [
+        "tencent",
+        "eastmoney",
+        "yahoo",
+        "futu",
+        "akshare",
+        "yfinance",
+        "tushare",
+        "longbridge",
+        "local",
+    ],
     "india_equity": ["yahoo", "yfinance", "india_broker", "local"],
-    "kr_equity":   ["pykrx", "yahoo", "yfinance", "local"],
+    "kr_equity": ["pykrx", "yahoo", "yfinance", "local"],
     # TSX (.TO) / TSX Venture (.V): direct Yahoo first, SDK fallback second.
-    "ca_equity":   ["yahoo", "yfinance", "local"],
+    "ca_equity": ["yahoo", "yfinance", "local"],
     # UK (LSE .L): direct Yahoo first, SDK fallback second.
-    "uk_equity":   ["yahoo", "yfinance", "local"],
+    "uk_equity": ["yahoo", "yfinance", "local"],
     # Vietnam (.VN): Yahoo lists HOSE only — HNX and UPCOM are unsupported,
     # so those two are reachable only through the user's local files.
     "vietnam_equity": ["yahoo", "yfinance", "local"],
     # OKX first (native), then dedicated Binance, then generic CCXT / Yahoo.
-    "crypto":    ["okx", "binance", "ccxt", "yfinance", "local"],
+    "crypto": ["okx", "binance", "ccxt", "yfinance", "local"],
     # tushare led this chain while implementing no futures endpoint at all
     # (#1395): ``resolve_loader`` walks FALLBACK_CHAINS and never consults a
     # loader's ``markets`` set, so trimming that set alone would have left
     # tushare first in line, returning empty frames before akshare was ever
     # asked. akshare serves Chinese contracts off the token-free Sina daily
     # endpoints; a global contract has no network source and reaches ``local``.
-    "futures":   ["akshare", "local"],
-    "fund":      ["tushare", "akshare", "local"],
-    "macro":     ["akshare", "tushare", "local"],
+    "futures": ["akshare", "local"],
+    "fund": ["tushare", "akshare", "local"],
+    "macro": ["akshare", "tushare", "local"],
     # mt5 leads when a local MetaTrader 5 terminal is attached (Windows-only,
     # broker feed); otherwise it reports unavailable and the chain proceeds.
-    "forex":     ["mt5", "akshare", "yfinance", "local"],
+    "forex": ["mt5", "akshare", "yfinance", "local"],
     # Yahoo index symbols (^SPX, ^NDX, ^FTSE, ^VIX, ...): served verbatim by
     # the public chart endpoint, same as the =F/=X conventions.
-    "index":     ["yahoo", "yfinance", "local"],
+    "index": ["yahoo", "yfinance", "local"],
 }
 
 
@@ -386,7 +425,9 @@ def refresh_source_order_overrides() -> None:
             logger.warning(
                 "Ignoring invalid %s=%r: value must be a permutation of the"
                 " default chain %s; keeping default order",
-                source_order_env_var(market), raw, default,
+                source_order_env_var(market),
+                raw,
+                default,
             )
         FALLBACK_CHAINS[market] = default[:]
         _ACTIVE_SOURCE_ORDER_OVERRIDES.pop(market, None)
@@ -468,16 +509,16 @@ def get_loader_cls_with_fallback(source: str) -> Type[Any]:
     if source in _NO_NETWORK_FALLBACK_SOURCES:
         hint = {
             "local": "Check your Data Bridge config "
-                     "(~/.vibe-trading/data-bridge/config.yaml) — it must exist and "
-                     "list at least one source.",
+            "(~/.vibe-trading/data-bridge/config.yaml) — it must exist and "
+            "list at least one source.",
             "tickerall": "Set TICKERALL_API_KEY and TICKERALL_ACCOUNT_ID.",
             "fmp": "Set FMP_API_KEY.",
             "nobitex": "Nobitex's public endpoint was unreachable. It quotes in "
-                       "Toman (IRT) and has no substitute — check network access "
-                       "to apiv2.nobitex.ir.",
+            "Toman (IRT) and has no substitute — check network access "
+            "to apiv2.nobitex.ir.",
             "wallex": "Wallex's public endpoint was unreachable. It quotes in "
-                      "Toman (TMN) and has no substitute — check network access "
-                      "to api.wallex.ir.",
+            "Toman (TMN) and has no substitute — check network access "
+            "to api.wallex.ir.",
         }.get(source, "")
         raise NoAvailableSourceError(
             f"Data source '{source}' is unavailable and does not fall back to a "
@@ -490,7 +531,9 @@ def get_loader_cls_with_fallback(source: str) -> Type[Any]:
             fallback = resolve_loader(market)
             logger.warning(
                 "%s is unavailable, falling back to %s for market %s",
-                source, fallback.name, market,
+                source,
+                fallback.name,
+                market,
             )
             return type(fallback)
         except NoAvailableSourceError:
