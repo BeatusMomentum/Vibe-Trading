@@ -9,6 +9,7 @@ from backtest.loaders.registry import VALID_SOURCES
 from src.agent.progress import emit_progress
 from src.agent.tools import BaseTool
 from src.core.runner import Runner
+from src.core.state import RunStateStore
 from src.tools.path_utils import safe_run_dir
 
 
@@ -61,6 +62,16 @@ def run_backtest(run_dir: str) -> str:
         cwd=agent_root,
         cli_args=[str(run_path)],
     )
+
+    # Record lifecycle status so tool-driven runs are ingestible by the
+    # evidence pipeline: refresh_strategy_evidence fail-closes without
+    # state.json, which previously only the runtime loop wrote (#1412).
+    # Same contract as the runtime — success, or failure with a reason.
+    state_store = RunStateStore()
+    if result.success:
+        state_store.mark_success(run_path)
+    else:
+        state_store.mark_failure(run_path, f"backtest engine exited with code {result.exit_code}")
 
     emit_progress("finalize", message="collecting artifacts")
     artifacts_found = {name: str(path) for name, path in result.artifacts.items()}
