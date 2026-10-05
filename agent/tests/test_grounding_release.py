@@ -2394,7 +2394,7 @@ def test_the_correction_prompt_names_the_figures_to_keep(tmp_path: Path) -> None
     assert "1.171, 1.137, 1.150, 1.090, 1.136" in keep
     for rejected in ("2.50", "9.99", "0.97"):
         assert rejected not in keep
-    assert "only the figures listed above need work" in prompt
+    assert "repair the rejected claims while preserving the clean figures" in prompt
 
 
 def test_the_keep_list_is_absent_when_nothing_passed(tmp_path: Path) -> None:
@@ -2422,3 +2422,18 @@ def test_the_keep_list_caps_and_counts_the_rest(tmp_path: Path) -> None:
     assert "and 3 more" in keep
     assert "11.23" in keep
     assert "11.24" not in keep
+
+
+def test_keep_list_does_not_endorse_rejections_hidden_by_the_feedback_cap(tmp_path: Path) -> None:
+    ledger = _ledger(tmp_path)
+    bad_values = [f"{90 + i / 100:.2f}" for i in range(30)]
+    draft = HDR + " Unverified metrics: " + ", ".join(bad_values) + "." + _block(HDR_ROW)
+    result = ledger.validate_final_answer(draft)
+    assert len(result.issues) > 24
+    prompt = ledger.correction_prompt(result)
+    keep = next(line for line in prompt.splitlines() if "checked clean" in line)
+    assert "1.171" in keep
+    assert all(value not in keep for value in bad_values)
+    assert "Every other measured figure" not in prompt
+    assert "only the figures listed above need work" not in prompt
+    assert f"{len(result.issues) - 24} additional" in prompt

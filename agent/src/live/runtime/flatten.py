@@ -362,6 +362,11 @@ def _flatten_open_positions(
             continue
         if qty == 0.0:
             continue
+        if not isinstance(symbol, str) or not symbol.strip():
+            report["errors"].append(
+                {"phase": "flatten", "error": f"invalid or missing position symbol: {symbol!r}"}
+            )
+            continue
         side = "sell" if qty > 0 else "buy"
         close_qty = abs(qty)
         request = {
@@ -438,7 +443,7 @@ def _coerce_position_qty(raw: Any) -> float | None:
         return None
     try:
         qty = float(raw)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     return qty if math.isfinite(qty) else None
 

@@ -312,3 +312,48 @@ def test_agent_loop_sends_the_hint_and_releases_the_corrected_answer(tmp_path: P
     assert rejected[0]["issues"][0]["reason"] == "unknown_call_id"
     assert rejected[0]["issues"][0]["field_ref_candidates"] == [exact_ref]
     assert any(event == "grounding_status" and data["stage"] == "revising" for event, data in events)
+
+
+def test_agent_loop_keeps_clean_figures_and_revalidates_the_repair(tmp_path: Path) -> None:
+    """Exercise keep feedback through the actual AgentLoop without a paid model."""
+    class RepairingLLM:
+        calls = 0
+
+        def stream_chat(self, messages, on_text_chunk=None, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return LLMResponse(tool_calls=[ToolCallRequest("call_report", "report_tool", {})])
+            if self.calls == 2:
+                drawdown = "99.9"
+            else:
+                assert self.calls == 3
+                keep = next(line for line in messages[-1]["content"].splitlines() if "checked clean" in line)
+                assert "12.5" in keep and "99.9" not in keep
+                drawdown = "23.75"
+            content = (
+                f"Total return 12.5. Maximum drawdown {drawdown}.\n"
+                "```figures\n12.5 | observed | total return | call_report::data.summary.total_return\n"
+                f"{drawdown} | observed | maximum drawdown | call_report::data.summary.max_drawdown\n```"
+            )
+            if on_text_chunk:
+                on_text_chunk(content)
+            return LLMResponse(content=content)
+
+        def chat(self, _messages, **_kwargs):
+            return LLMResponse(content="")
+
+    registry = ToolRegistry()
+    registry.register(_ReportTool(json.dumps({"data": {"summary": {"total_return": 12.5, "max_drawdown": 23.75}}})))
+    llm = RepairingLLM()
+    agent = AgentLoop(registry=registry, llm=llm, max_iterations=5)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    agent.memory.run_dir = str(run_dir)
+    result = agent.run("Report the total return and maximum drawdown")
+    assert result["status"] == "success"
+    assert result["content"] == "Total return 12.5. Maximum drawdown 23.75."
+    assert not result.get("degraded")
+    assert llm.calls == 3
+    rejected = [event for event in TraceWriter.read(run_dir) if event.get("type") == "answer_rejected"]
+    assert len(rejected) == 1
+    assert rejected[0]["issues"][0]["value"] == "99.9"

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -97,6 +98,28 @@ def test_live_status_blank_broker_rejected(tmp_path: Path, monkeypatch) -> None:
     response = client.get("/live/status", params={"broker": "   "})
 
     assert response.status_code == 400
+
+
+def test_live_status_converts_heartbeat_milliseconds_to_api_seconds(tmp_path, monkeypatch) -> None:
+    from src.live.runtime import liveness
+
+    _live_env(tmp_path, monkeypatch)
+    now = 1_700_000_000
+    monkeypatch.setattr("src.api.live_routes.time.time", lambda: now)
+    liveness.write_heartbeat("robinhood", now_ms=(now - 45) * 1000)
+    state = api_server._runner_liveness_state("robinhood")
+    assert state.alive is True
+    assert state.last_tick == now - 45
+    assert state.last_tick_age_seconds == 45
+
+
+def test_live_status_keeps_an_owned_long_running_tick_alive(tmp_path, monkeypatch) -> None:
+    from src.live.runtime import liveness
+
+    _live_env(tmp_path, monkeypatch)
+    liveness.write_heartbeat("robinhood", now_ms=int(time.time() * 1000) - 300_000)
+    api_server._runner_tasks["robinhood"] = SimpleNamespace(done=lambda: False)
+    assert api_server._runner_liveness_state("robinhood").alive is True
 
 
 def test_live_status_reflects_active_mandate(tmp_path: Path, monkeypatch) -> None:
@@ -472,8 +495,9 @@ def test_runner_start_without_a_scheduler_task_still_returns(
     asyncio.run(scenario())
 
 
-def test_drive_runner_awaits_an_async_run_loop_and_stops_the_scheduler() -> None:
+def test_drive_runner_awaits_an_async_run_loop_and_stops_the_scheduler(tmp_path, monkeypatch) -> None:
     """An ``async def run_loop`` is awaited, and its scheduler is still stopped."""
+    _live_env(tmp_path, monkeypatch)
     scheduler = _StubScheduler()
 
     class _AsyncRunner:
@@ -506,6 +530,175 @@ def test_drive_runner_awaits_an_async_run_loop_and_stops_the_scheduler() -> None
 
     assert scheduler.running is False
     assert scheduler.stop_calls == 1
+
+
+def test_stop_waits_for_teardown_and_blocks_a_concurrent_restart(tmp_path, monkeypatch) -> None:
+    _live_env(tmp_path, monkeypatch)
+    scheduler = _install_runner(monkeypatch)
+
+    async def scenario() -> None:
+        entered, release = asyncio.Event(), asyncio.Event()
+        original_stop = scheduler.stop
+
+        async def slow_stop() -> None:
+            entered.set()
+            await release.wait()
+            await original_stop()
+
+        monkeypatch.setattr(scheduler, "stop", slow_stop)
+        async with _live_client() as client:
+            await client.post("/live/runner/start", json={"broker": "robinhood"})
+            await _await_ticks(scheduler)
+            stop = asyncio.create_task(client.post("/live/runner/stop", json={"broker": "robinhood"}))
+            try:
+                await asyncio.wait_for(entered.wait(), 1)
+                assert not stop.done(), "stop returned before scheduler teardown"
+                restart = await client.post("/live/runner/start", json={"broker": "robinhood"})
+                assert restart.json()["already_running"] is True
+            finally:
+                release.set()
+                await stop
+            assert scheduler.running is False
+            assert scheduler.stop_calls == 1
+            assert not api_server._runner_tasks
+
+    asyncio.run(scenario())
+
+
+def test_concurrent_stops_do_not_cancel_teardown_twice(tmp_path, monkeypatch) -> None:
+    _live_env(tmp_path, monkeypatch)
+    scheduler = _install_runner(monkeypatch)
+
+    async def scenario() -> None:
+        entered, release = asyncio.Event(), asyncio.Event()
+        original_stop = scheduler.stop
+
+        async def slow_stop() -> None:
+            entered.set()
+            await release.wait()
+            await original_stop()
+
+        monkeypatch.setattr(scheduler, "stop", slow_stop)
+        async with _live_client() as client:
+            await client.post("/live/runner/start", json={"broker": "robinhood"})
+            await _await_ticks(scheduler)
+            first = asyncio.create_task(client.post("/live/runner/stop", json={"broker": "robinhood"}))
+            await asyncio.wait_for(entered.wait(), 1)
+            second = asyncio.create_task(client.post("/live/runner/stop", json={"broker": "robinhood"}))
+            try:
+                await asyncio.sleep(0.01)
+                assert not second.done(), "second stop bypassed unfinished teardown"
+            finally:
+                release.set()
+                await asyncio.gather(first, second)
+            assert not scheduler.running
+            assert scheduler.stop_calls == 1
+
+    asyncio.run(scenario())
+
+
+def test_api_shutdown_stops_live_schedulers_even_when_channel_stop_fails(tmp_path, monkeypatch) -> None:
+    _live_env(tmp_path, monkeypatch)
+    scheduler = _install_runner(monkeypatch)
+
+    async def startup() -> None:
+        pass
+
+    async def broken_channels() -> None:
+        raise RuntimeError("channel stop failed")
+
+    async def stop_research() -> None:
+        pass
+
+    monkeypatch.setattr(api_server, "_run_startup_preflight", startup)
+    monkeypatch.setattr(api_server, "_stop_channel_runtime", broken_channels)
+    monkeypatch.setattr(api_server, "_stop_scheduled_research_executor", stop_research)
+
+    async def scenario() -> None:
+        with pytest.raises(RuntimeError, match="channel stop failed"):
+            async with api_server._lifespan(api_server.app):
+                async with _live_client() as client:
+                    await client.post("/live/runner/start", json={"broker": "robinhood"})
+                    await _await_ticks(scheduler)
+        try:
+            assert not scheduler.running, "live scheduler survived API shutdown"
+            assert not api_server._runner_tasks
+        finally:
+            for task in list(api_server._runner_tasks.values()):
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+    asyncio.run(scenario())
+
+
+def test_stop_during_async_start_still_cleans_up_its_scheduler(tmp_path, monkeypatch) -> None:
+    _live_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(api_server, "_active_mandate_state", lambda b: _valid_mandate_state(b))
+    scheduler = _StubScheduler()
+
+    async def scenario() -> None:
+        started = asyncio.Event()
+
+        async def run_loop() -> None:
+            scheduler.start()
+            started.set()
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(api_server, "_runner_factory", lambda broker: SimpleNamespace(
+            broker=broker, _scheduler=scheduler, run_loop=run_loop,
+        ))
+        async with _live_client() as client:
+            await client.post("/live/runner/start", json={"broker": "robinhood"})
+            await asyncio.wait_for(started.wait(), 1)
+            try:
+                response = await client.post("/live/runner/stop", json={"broker": "robinhood"})
+                assert response.json()["stopped"] is True
+                assert not scheduler.running
+            finally:
+                await scheduler.stop()
+
+    asyncio.run(scenario())
+
+
+def test_api_stop_terminates_the_real_scheduler_task(tmp_path, monkeypatch) -> None:
+    from src.live.runtime.scheduler import Job, Scheduler
+    from src.live.runtime import liveness
+
+    _live_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(api_server, "_active_mandate_state", lambda b: _valid_mandate_state(b))
+
+    async def scenario() -> None:
+        fired = asyncio.Event()
+        ticks = []
+
+        async def on_fire(job) -> None:
+            ticks.append(job.id)
+            liveness.write_heartbeat("robinhood")
+            fired.set()
+
+        scheduler = Scheduler(on_fire)
+        scheduler.add_job(Job("lifecycle-check", 0, "interval:10"))
+        monkeypatch.setattr(api_server, "_runner_factory", lambda broker: SimpleNamespace(
+            broker=broker, _scheduler=scheduler, run_loop=scheduler.start,
+        ))
+        async with _live_client() as client:
+            await client.post("/live/runner/start", json={"broker": "robinhood"})
+            await asyncio.wait_for(fired.wait(), 1)
+            scheduler_task = scheduler._task
+            response = await client.post("/live/runner/stop", json={"broker": "robinhood"})
+            assert response.json()["stopped"] is True
+            assert scheduler_task.done()
+            count = len(ticks)
+            await asyncio.sleep(0.03)
+            assert len(ticks) == count
+            assert not api_server._runner_tasks
+            state = await client.get("/live/status", params={"broker": "robinhood"})
+            assert state.json()["brokers"][0]["runner"]["alive"] is False
+
+    asyncio.run(scenario())
 
 
 # --------------------------------------------------------------------------- #
@@ -627,6 +820,83 @@ def test_build_live_runner_wires_a_real_runner(tmp_path, monkeypatch) -> None:
     assert runner.broker == "robinhood"
     assert hasattr(runner, "run_once") and hasattr(runner, "run_loop")
     assert runner.runner_id == "robinhood"
+
+
+@pytest.mark.parametrize("cancel,phase,fails", [
+    (False, "registry", False), (True, "registry", False),
+    (True, "agent", False), (False, "agent", True),
+])
+def test_live_runner_owns_its_actual_background_session_attempt(tmp_path, monkeypatch, cancel, phase, fails) -> None:
+    from src.session.events import EventBus
+    from src.session.service import SessionService
+    from src.session.store import SessionStore
+
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path), raising=False)
+    monkeypatch.setattr(api_server, "_runner_factory", None, raising=False)
+    monkeypatch.setattr(api_server, "_mandate_account_ref", lambda broker: "acct_test")
+    monkeypatch.setattr(api_server, "_live_broker_adapter", lambda broker: SimpleNamespace(
+        call_tool=lambda name, args: {"status": "ok", "data": {}},
+    ))
+
+    async def scenario() -> None:
+        bus = EventBus()
+        bus.set_loop(asyncio.get_running_loop())
+        service = SessionService(SessionStore(base_dir=tmp_path / "sessions"), bus,
+                                 runs_dir=tmp_path / "runs")
+        started, release = asyncio.Event(), asyncio.Event()
+        cancelled = False
+
+        def cooperative_cancel() -> None:
+            nonlocal cancelled
+            cancelled = True
+            release.set()
+
+        async def controlled_attempt(attempt, **kwargs):
+            if phase == "agent":
+                service._active_loops[attempt.session_id] = SimpleNamespace(cancel=cooperative_cancel)
+            started.set()
+            try:
+                await release.wait()
+                if fails:
+                    return {"status": "failed", "reason": "execution failed"}
+                return {"status": "cancelled" if cancelled else "success", "content": "completed analysis"}
+            finally:
+                service._active_loops.pop(attempt.session_id, None)
+
+        monkeypatch.setattr(service, "_run_with_agent", controlled_attempt)
+        monkeypatch.setattr(api_server, "_get_session_service", lambda: service)
+        runner = api_server._build_live_runner("robinhood")
+        driver = asyncio.create_task(runner._agent_caller(runner._session_id, "test tick"))
+        try:
+            await asyncio.wait_for(started.wait(), 1)
+            assert not driver.done(), "queued attempt was mistaken for a completed tick"
+            if cancel:
+                driver.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await driver
+                session = service.get_session(runner._session_id)
+                attempt = service.store.get_attempt(session.session_id, session.last_attempt_id)
+                assert attempt.status.value == "cancelled"
+                assert not service._active_tasks
+                assert not service._inflight
+                assert not service._active_loops
+            else:
+                release.set()
+                if fails:
+                    with pytest.raises(RuntimeError, match="execution failed"):
+                        await asyncio.wait_for(driver, 1)
+                else:
+                    result = await asyncio.wait_for(driver, 1)
+                    assert result["status"] == "success"
+                    assert result["content"] == "completed analysis"
+            assert not bus._listeners
+        finally:
+            release.set()
+            pending = list(service._active_tasks.values())
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+
+    asyncio.run(scenario())
 
 
 def test_runner_start_returns_503_when_broker_unavailable(tmp_path, monkeypatch) -> None:

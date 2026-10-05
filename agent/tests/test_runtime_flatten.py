@@ -556,8 +556,8 @@ def test_missing_or_blank_order_id_is_not_submitted(
 
 @pytest.mark.parametrize(
     "dirty_qty",
-    ["n/a", "", None, float("nan"), float("inf"), {"a": 1}, True],
-    ids=["str", "blank", "none", "nan", "inf", "dict", "bool"],
+    ["n/a", "", None, float("nan"), float("inf"), {"a": 1}, True, 10**400],
+    ids=["str", "blank", "none", "nan", "inf", "dict", "bool", "overflow"],
 )
 def test_dirty_position_qty_is_recorded_and_sweep_continues(
     live_runtime: Path, dirty_qty: Any
@@ -625,3 +625,15 @@ def test_zero_qty_still_skipped_without_error(live_runtime: Path) -> None:
     )
     assert report["flatten_orders_submitted"] == []
     assert report["errors"] == []
+
+
+@pytest.mark.parametrize("symbol", [None, "", "  ", True, {"symbol": "AAPL"}])
+def test_invalid_symbol_never_reaches_a_close_submission(live_runtime, symbol) -> None:
+    broker = _Broker([], [{"symbol": symbol, "qty": 1}, {"symbol": "AAPL", "qty": -2}])
+    report = flatten.flatten_and_cancel(
+        "robinhood", broker.submit, broker.read_positions, broker.read_open_orders,
+        allow_flatten=True,
+    )
+    assert [request["symbol"] for _, request in broker.calls] == ["AAPL"]
+    assert report["flatten_orders_submitted"][0]["side"] == "buy"
+    assert any(error["phase"] == "flatten" and "symbol" in error["error"] for error in report["errors"])

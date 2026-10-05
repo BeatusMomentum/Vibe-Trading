@@ -173,6 +173,21 @@ def _start_scheduled_research_executor() -> None:
     _get_scheduled_research_executor().start()
 
 
+async def _stop_scheduled_research_on_shutdown() -> None:
+    """Stop live drivers, channels and research even if one service fails."""
+    from src.api.channels_routes import _stop_channel_runtime
+    from src.api.live_routes import _stop_live_runners
+
+    host = _sys.modules.get("api_server")
+    try:
+        await getattr(host, "_stop_live_runners", _stop_live_runners)()
+    finally:
+        try:
+            await getattr(host, "_stop_channel_runtime", _stop_channel_runtime)()
+        finally:
+            await getattr(host, "_stop_scheduled_research_executor", _stop_scheduled_research_executor)()
+
+
 async def _stop_scheduled_research_executor() -> None:
     """Stop scheduled research execution if it was started."""
     executor = _scheduled_research_executor

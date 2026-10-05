@@ -52,15 +52,17 @@
 
 > ⚠️ **安全警告：** X 账号 `VibeTrading_HKU`、Virtuals 项目 `101845` 及代币合约 `0x640BDBF77b6447E8b7DB7894cED84BD1c40571f4` 均非 Vibe-Trading 官方。我们从未发行或背书任何代币或 meme 币。请勿购买、连接钱包或签名。[详细说明](SECURITY.md#official-channels--impersonation)。
 
+- **2026-10-06** 🛠️ **实盘控制与报告纠错修复**：停止实盘运行会取消当前分析并等待调度器完成清理，覆盖启动期间取消及 API 关闭，运行状态时间单位也已修正（[#1704](https://github.com/HKUDS/Vibe-Trading/pull/1704)）。紧急撤单／平仓扫描跳过异常记录，继续处理其余订单和持仓（[#1703](https://github.com/HKUDS/Vibe-Trading/pull/1703)）；不同券商的调度独立保存，持久化正确处理并发写入与短写入。美股半日交易遵循提前收市时间（[#1706](https://github.com/HKUDS/Vibe-Trading/pull/1706)）。报告纠错保留已核验通过的数字，反馈截断也不会暗示未列出的数字已通过（[#1702](https://github.com/HKUDS/Vibe-Trading/pull/1702)）。
+
 - **2026-10-05** 🛠️ **研究输入与计算修复**：聊天支持更长的研究输入，超限时以当前语言提示缩短（[#1701](https://github.com/HKUDS/Vibe-Trading/pull/1701)）。回测 Sortino 使用全样本下行偏差；分组验证剔除重叠标签，协方差权重保持有限，影子账户 RSI 使用 Wilder 初始均值，记忆支持按文件名删除。 报告误用调用别名时，纠正提示提供真实字段引用（[#1638](https://github.com/HKUDS/Vibe-Trading/pull/1638)），数值校验保持不变。
 
 - **2026-10-04** 🛠️ **定时报告与研究流程完善**：定时任务支持编辑并选择已配置的交付目标，邮件报告可选 HTML 或 PDF 附件（[#1649](https://github.com/HKUDS/Vibe-Trading/pull/1649), [#1680](https://github.com/HKUDS/Vibe-Trading/pull/1680)）。
   回测提供结构化摘要与产物分页读取（[#1646](https://github.com/HKUDS/Vibe-Trading/pull/1646), [#1647](https://github.com/HKUDS/Vibe-Trading/pull/1647)）；同时修复记忆搜索片段、导出路径提示、宏观数据截断说明、月线风险、反向持仓及清仓后重新入场的换手率、隐含波动率精度、VaR 缺口、源码安装更新，以及 Robinhood 不受支持的期权下单拦截。
 
-- **2026-10-03** 🛠️ **研究、报告与数据可靠性修复**：修复中文、日文和韩文会话搜索、渠道设置、券商持仓估值与文件写入中阻碍日常使用的问题。PDF 交付嵌入中日韩字体，Swarm 校验预设输入并隔离各任务产物，回放的工具结果在上下文压缩后仍可用（[#1683](https://github.com/HKUDS/Vibe-Trading/pull/1683), [#1455](https://github.com/HKUDS/Vibe-Trading/pull/1455), [#1635](https://github.com/HKUDS/Vibe-Trading/pull/1635)）。回测保持一致复权口径，本地缓存区分数据来源，单资产上限与周/月风险计算遵循声明设置，审计保留亏损符号，数值核验绑定本次引擎输出及准确列表引用，Stooq 拒绝冷却后允许重试（[#1684](https://github.com/HKUDS/Vibe-Trading/pull/1684), [#1650](https://github.com/HKUDS/Vibe-Trading/pull/1650), [#1685](https://github.com/HKUDS/Vibe-Trading/pull/1685), [#1640](https://github.com/HKUDS/Vibe-Trading/pull/1640)）。
-
 <details>
 <summary>更早的新闻</summary>
+
+- **2026-10-03** 🛠️ **研究、报告与数据可靠性修复**：修复中文、日文和韩文会话搜索、渠道设置、券商持仓估值与文件写入中阻碍日常使用的问题。PDF 交付嵌入中日韩字体，Swarm 校验预设输入并隔离各任务产物，回放的工具结果在上下文压缩后仍可用（[#1683](https://github.com/HKUDS/Vibe-Trading/pull/1683), [#1455](https://github.com/HKUDS/Vibe-Trading/pull/1455), [#1635](https://github.com/HKUDS/Vibe-Trading/pull/1635)）。回测保持一致复权口径，本地缓存区分数据来源，单资产上限与周/月风险计算遵循声明设置，审计保留亏损符号，数值核验绑定本次引擎输出及准确列表引用，Stooq 拒绝冷却后允许重试（[#1684](https://github.com/HKUDS/Vibe-Trading/pull/1684), [#1650](https://github.com/HKUDS/Vibe-Trading/pull/1650), [#1685](https://github.com/HKUDS/Vibe-Trading/pull/1685), [#1640](https://github.com/HKUDS/Vibe-Trading/pull/1640)）。
 
 - **2026-10-02** 🛠️ **回测与报告核验修复**：策略文件写入保留模型来源，不再崩溃 ([#1673](https://github.com/HKUDS/Vibe-Trading/pull/1673))；蒙特卡洛回撤与 Sharpe 计算纳入初始资金 ([#1664](https://github.com/HKUDS/Vibe-Trading/pull/1664))。报告审计保留会计括号负数及单位 ([#1663](https://github.com/HKUDS/Vibe-Trading/pull/1663))，数值核验制品记录已触发的声明式检查 ([#1661](https://github.com/HKUDS/Vibe-Trading/pull/1661))，公开数据源健康报告附带脱敏后的失败原因 ([#1643](https://github.com/HKUDS/Vibe-Trading/pull/1643))。印尼语工具文档与注册表同步 ([#1671](https://github.com/HKUDS/Vibe-Trading/pull/1671))。
 
