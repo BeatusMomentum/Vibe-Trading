@@ -809,14 +809,14 @@ def _calc_options_metrics(
     sortino: float | None = None
     if returns is not None and bars_per_year > 0:
         downside = returns[returns < 0]
-        if len(downside) > 1:
-            downside_std = float(downside.std())
-            if np.isfinite(downside_std) and downside_std > 1e-12:
-                sortino = float(returns.mean() / downside_std * np.sqrt(bars_per_year))
-        if sortino is None:
-            warnings.append(
-                "Sortino ratio requires at least two varying downside returns."
+        # Zero-target downside RMS includes every return period in the divisor.
+        downside_deviation = float(np.sqrt((downside**2).sum() / len(returns)))
+        if np.isfinite(downside_deviation) and downside_deviation > 1e-12:
+            sortino = float(
+                returns.mean() / downside_deviation * np.sqrt(bars_per_year)
             )
+        if sortino is None:
+            warnings.append("Sortino ratio requires nonzero downside deviation.")
     elif bars_per_year <= 0:
         warnings.append("Sortino ratio requires a positive bars_per_year value.")
     else:
