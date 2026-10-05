@@ -114,11 +114,16 @@ class ValidationResult:
 
     ``released_text`` is the draft without its declaration block, which is a
     contract with the gate and never reaches the user.
+
+    ``passed_figures`` names the measured figures the gate checked and let
+    through, as written, so the correction prompt can tell the model what to
+    keep, not only what to fix.
     """
 
     valid: bool
     issues: list[dict[str, Any]] = field(default_factory=list)
     released_text: str = ""
+    passed_figures: tuple[str, ...] = ()
 
 
 def _close(value: float, target: float) -> bool:
