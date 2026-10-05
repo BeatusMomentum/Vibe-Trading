@@ -722,13 +722,78 @@ def _build_live_runner(broker: str) -> Any:
     return runner
 
 
+def _runner_scheduler_task(runner: Any) -> Optional["asyncio.Task[Any]"]:
+    """Return the live task driving the runner's scheduler, or ``None``.
+
+    Neither ``LiveRunner`` nor ``Scheduler`` exposes a public accessor for the
+    scheduler loop task (``LiveRunner`` only publishes ``runner_id``;
+    ``Scheduler``'s public surface is ``start``/``stop``/``add_job``/
+    ``remove_job``/``jobs``), so both hops are read defensively with
+    ``getattr``. A runner whose ``run_loop`` declined to start — no mandate, or
+    an expired one (``runner.py`` returns before calling ``Scheduler.start``) —
+    leaves ``_task`` unset and has nothing to await.
+    """
+    task = getattr(getattr(runner, "_scheduler", None), "_task", None)
+    if task is None or task.done():
+        return None
+    return task
+
+
+async def _stop_scheduler(runner: Any) -> None:
+    """Tear the runner's scheduler down, tolerating a sync or async ``stop``.
+
+    ``Scheduler.stop`` is a coroutine function, but the ``_Scheduler`` protocol
+    in ``runner.py`` types ``stop`` as returning ``Any``, so injected doubles may
+    be plain callables. Teardown is best-effort: a scheduler that refuses to
+    stop must not turn into an unhandled error inside the driver task.
+    """
+    stop = getattr(getattr(runner, "_scheduler", None), "stop", None)
+    if stop is None:
+        return
+    try:
+        result = stop()
+        if asyncio.iscoroutine(result):
+            await result
+    except Exception:  # noqa: BLE001 - teardown is best-effort by contract
+        logger.warning(
+            "live scheduler teardown failed for %s",
+            getattr(runner, "broker", "?"),
+            exc_info=True,
+        )
+
+
 async def _drive_runner(runner: Any) -> None:
-    """Run a runner's ``run_loop`` to completion, sync or async."""
+    """Run a runner's ``run_loop`` and stay alive for as long as its scheduler.
+
+    ``run_loop`` is fire-and-forget: it resolves the jobs, calls
+    ``Scheduler.start()`` (which only spawns the loop task) and returns. The
+    task wrapping this coroutine is the *only* handle
+    ``POST /live/runner/stop`` holds, and its ``add_done_callback`` unregisters
+    it the moment this coroutine returns — so a driver that returned alongside
+    ``run_loop`` would leave the scheduler firing ``run_once()`` on its cadence
+    while ``stop`` answered ``was_running: false``.
+
+    Keeping this coroutine parked on the scheduler task makes the driver's
+    lifetime the scheduler's lifetime, so cancelling it actually stops trading.
+    """
     result = runner.run_loop()
     if asyncio.iscoroutine(result):
         await result
     else:
         await asyncio.get_running_loop().run_in_executor(None, lambda: result)
+
+    scheduler_task = _runner_scheduler_task(runner)
+    if scheduler_task is None:
+        # ``run_loop`` declined to start (missing or expired mandate): there is
+        # no scheduler to own, so the driver returns immediately as before.
+        return
+
+    try:
+        # Shielded: cancelling this task is precisely what ``stop`` does, and the
+        # teardown below is what has to reach the scheduler loop task.
+        await asyncio.shield(scheduler_task)
+    finally:
+        await _stop_scheduler(runner)
 
 
 # ============================================================================
