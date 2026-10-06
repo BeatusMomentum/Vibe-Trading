@@ -853,7 +853,7 @@ that is a bug, not a pattern.
 | `risk` · `var_backtest` | VaR / CVaR / EVT and their backtests |
 | `attribution` | Brinson-Fachler decomposition |
 | `performance` · `fundmath` | TWR / MWR / Modified Dietz; XIRR / MOIC / DPI / TVPI |
-| `factormodel` · `eventstudy` | Factor regressions, event studies |
+| `factormodel` · `eventstudy` | Factor regressions, event studies; portfolio style exposure reports incomplete factor rows as unmatched weight. |
 | `multipletesting` · `crossvalidation` | Deflated significance, purged CV |
 | `impact` | Market-impact models |
 | `volatility` | Heston (1993) stochastic-volatility pricing |
