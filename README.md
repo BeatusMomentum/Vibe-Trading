@@ -856,7 +856,7 @@ that is a bug, not a pattern.
 | `factormodel` · `eventstudy` | Factor regressions, event studies |
 | `multipletesting` · `crossvalidation` | Deflated significance, purged CV |
 | `impact` | Market-impact models |
-| `volatility` | Heston (1993) stochastic-volatility pricing |
+| `volatility` | Heston (1993) stochastic-volatility pricing; Heston pricing requires finite inputs and a positive integration limit; invalid inputs return a domain error. |
 | `portfolio` | Hierarchical Risk Parity allocation |
 | `copula` | Gaussian and Archimedean copulas |
 | `microstructure` | VPIN, Roll spread, Amihud illiquidity, Kyle's lambda |
