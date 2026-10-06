@@ -113,3 +113,18 @@ class TestSystemPromptCacheStability:
         assert "<recalled-memories>" in user
         assert user.index("<agent-state>") < user.index("analyze AAPL")
         assert user.index("<recalled-memories>") < user.index("analyze AAPL")
+
+    def test_state_envelope_stays_outside_user_message_tags(self) -> None:
+        """loop.py may wrap the raw text in <user-message> tags (goal context).
+        The state envelope must stay a sibling prefix, never nest inside —
+        it must not look like user-typed input."""
+        wrapped = "<goal-continuation>g</goal-continuation>\n\n<user-message>\nanalyze AAPL\n</user-message>"
+        m = WorkspaceMemory()
+        m.run_dir = "/runs/x"
+
+        user = _builder(m).build_messages(wrapped)[-1]["content"]
+
+        assert user.index("<agent-state>") < user.index("<user-message>")
+        closing = user.index("</user-message>")
+        opening = user.index("<user-message>")
+        assert "<agent-state>" not in user[opening:closing]
