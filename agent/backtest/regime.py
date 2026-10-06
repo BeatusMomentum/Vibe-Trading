@@ -111,7 +111,7 @@ def _aligned_returns(price_series: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     returns_frames = []
     for code in sorted(price_series):
         ts = _close_series(code, price_series[code])
-        ts.index = ts.index.normalize()
+        ts.index = ts.index.tz_localize(None).normalize()
         rets = ts.pct_change(fill_method=None).dropna()
         rets.name = code
         returns_frames.append(rets)
