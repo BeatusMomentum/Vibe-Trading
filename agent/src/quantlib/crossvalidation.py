@@ -476,6 +476,8 @@ def purged_walk_forward_splits(
         # has already seen the test period.
         reaches_in = label_ends[candidate] >= start
         train = candidate[~reaches_in]
+        if train.size == 0:
+            continue
         yield Split(
             train=train,
             test=np.arange(start, stop),
