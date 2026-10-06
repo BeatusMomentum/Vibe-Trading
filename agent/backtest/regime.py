@@ -49,7 +49,11 @@ def compute_edge_density(
     density = pd.Series(np.nan, index=returns.index)
     for i in range(corr_window, len(returns) + 1):
         corr = returns.iloc[i - corr_window:i].corr().abs().to_numpy()
-        density.iloc[i - 1] = float((corr[upper_mask] >= edge_threshold).sum()) / n_pairs
+        pair_corr = corr[upper_mask]
+        # Undefined pairs (e.g. a constant asset) are missing evidence, not
+        # non-edges. Keep density unknown until the whole basket is measurable.
+        if np.isfinite(pair_corr).all():
+            density.iloc[i - 1] = float((pair_corr >= edge_threshold).sum()) / n_pairs
     return density
 
 
