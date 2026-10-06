@@ -817,6 +817,8 @@ Run `vibe-trading alpha list` to browse, `vibe-trading alpha show <id>` for form
 | **Composite** | cross-market | one shared capital pool across markets (`source="auto"`) |
 | **options_portfolio** | options | multi-leg, Greeks, payoff/scenario |
 
+Benchmark selection honors `.SH`, `.SZ`, and `.BJ` A-share suffixes independently of the chosen loader, including offline local sources.
+
 Bars: 1m / 5m / 15m / 30m / 1H / 4H / 1D, plus weekly / monthly (1W / 1M, built from daily bars). 15 metrics + benchmark comparison, **5 portfolio optimizers** (equal-volatility / risk-parity / mean-variance / max-diversification / turnover-aware), and 3 validation tools (Monte Carlo / Bootstrap / Walk-Forward).
 
 The turnover-aware optimizer validates per-name and group caps for single-asset

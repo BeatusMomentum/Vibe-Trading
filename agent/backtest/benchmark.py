@@ -165,6 +165,8 @@ def _infer_market(codes: list[str], source: str) -> str:
 
     first = codes[0].upper()
 
+    if first.endswith((".SH", ".SZ", ".BJ")):
+        return "a_share"
     if first.endswith(".US"):
         return "us_equity"
     if first.endswith(".HK"):
