@@ -151,6 +151,7 @@ class ResearchPlaybook:
         now_ms: Optional[int] = None,
         delivery_target_ref: Optional[str] = None,
         delivery_format: Optional[str] = None,
+        protect_pdf: bool = False,
     ) -> ScheduledResearchJob:
         """Build a schedulable job from this playbook.
 
@@ -174,6 +175,7 @@ class ResearchPlaybook:
             now_ms: Injectable clock for tests, in epoch milliseconds.
             delivery_target_ref: Operator-configured destination reference.
             delivery_format: Email presentation, html/pdf; None keeps plain text.
+            protect_pdf: Encrypt generated PDF output using the Email channel secret.
 
         Returns:
             A ``PENDING`` :class:`ScheduledResearchJob`.
@@ -210,6 +212,8 @@ class ResearchPlaybook:
             raise ValueError("delivery_format must be 'html', 'pdf', or null")
         if delivery_format is not None and (target is None or target.channel != "email"):
             raise ValueError("delivery_format is supported only for email delivery")
+        if protect_pdf and (delivery_format != "pdf" or target is None or target.channel != "email"):
+            raise ValueError("protect_pdf requires PDF email delivery")
 
         return ScheduledResearchJob(
             id=job_id or f"playbook-{self.slug}-{uuid.uuid4().hex[:8]}",
@@ -228,6 +232,7 @@ class ResearchPlaybook:
             delivery_target_ref=target.ref if target else None,
             delivery_target_label=target.label if target else None,
             delivery_format=delivery_format,
+            protect_pdf=protect_pdf,
         )
 
     def to_dict(self, include_body: bool = False) -> Dict[str, Any]:

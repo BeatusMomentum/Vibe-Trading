@@ -242,6 +242,7 @@ export function ChannelConfigPanel({
       "settings.channels.fields.email.smtp_port": { label: t("settings.channels.fields.email.smtp_port.label"), help: t("settings.channels.fields.email.smtp_port.help") },
       "settings.channels.fields.email.smtp_username": { label: t("settings.channels.fields.email.smtp_username.label"), help: t("settings.channels.fields.email.smtp_username.help") },
       "settings.channels.fields.email.smtp_password": { label: t("settings.channels.fields.email.smtp_password.label"), help: t("settings.channels.fields.email.smtp_password.help") },
+      "settings.channels.fields.email.pdf_password": { label: t("settings.channels.fields.email.pdf_password.label"), help: t("settings.channels.fields.email.pdf_password.help") },
       "settings.channels.fields.email.smtp_use_tls": { label: t("settings.channels.fields.email.smtp_use_tls.label"), help: t("settings.channels.fields.email.smtp_use_tls.help") },
       "settings.channels.fields.email.smtp_use_ssl": { label: t("settings.channels.fields.email.smtp_use_ssl.label"), help: t("settings.channels.fields.email.smtp_use_ssl.help") },
       "settings.channels.fields.email.verify_tls": { label: t("settings.channels.fields.email.verify_tls.label"), help: t("settings.channels.fields.email.verify_tls.help") },

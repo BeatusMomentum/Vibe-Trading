@@ -623,3 +623,109 @@ def test_patch_leaving_email_clears_implicit_format_and_refuses_explicit_pdf(cli
     response = client.patch(f"/scheduled-runs/{job.id}", json={"delivery_channel": "telegram", "delivery_target": "123"})
     assert response.status_code == 200
     assert response.json()["delivery_format"] is None
+
+
+def test_protected_pdf_create_validates_format_and_private_password(client, store, monkeypatch):
+    body = {
+        "id": "protected-pdf",
+        "prompt": "daily report",
+        "schedule": "60000",
+        "delivery_channel": "email",
+        "delivery_target": "reader@example.test",
+        "delivery_format": "pdf",
+        "protect_pdf": True,
+    }
+    invalid = {**body, "delivery_format": "html"}
+    assert client.post("/scheduled-runs", json=invalid).status_code == 422
+    assert store.get("protected-pdf") is None
+    unsafe_config = {**body, "protect_pdf": False, "config": {"nested": [{"pdf_password": "do-not-save"}]}}
+    rejected_config = client.post("/scheduled-runs", json=unsafe_config)
+    assert rejected_config.status_code == 422
+    assert "do-not-save" not in rejected_config.text
+    assert store.get("protected-pdf") is None
+
+    monkeypatch.setattr(scheduled_routes, "_email_pdf_password_configured", lambda: False)
+    response = client.post("/scheduled-runs", json=body)
+    assert response.status_code == 422
+    assert "password is configured" in response.json()["detail"]
+    assert store.get("protected-pdf") is None
+
+    monkeypatch.setattr(scheduled_routes, "_email_pdf_password_configured", lambda: True)
+    response = client.post("/scheduled-runs", json=body)
+    assert response.status_code == 201, response.text
+    assert response.json()["protect_pdf"] is True
+    assert "pdf_password" not in response.text
+
+
+def test_protected_pdf_update_persists_only_boolean_and_requires_secret(client, store, monkeypatch):
+    job = _seed(
+        store,
+        id="protectable",
+        delivery_channel="email",
+        delivery_target="reader@example.test",
+        delivery_format="pdf",
+    )
+    monkeypatch.setattr(scheduled_routes, "_email_pdf_password_configured", lambda: False)
+    response = client.patch(f"/scheduled-runs/{job.id}", json={"protect_pdf": True})
+    assert response.status_code == 422
+    assert store.get(job.id).protect_pdf is False
+    rejected_config = client.patch(
+        f"/scheduled-runs/{job.id}",
+        json={"config": {"nested": [{"pdf_password": "do-not-save"}]}},
+    )
+    assert rejected_config.status_code == 422
+    assert "do-not-save" not in rejected_config.text
+
+    monkeypatch.setattr(scheduled_routes, "_email_pdf_password_configured", lambda: True)
+    response = client.patch(f"/scheduled-runs/{job.id}", json={"protect_pdf": True})
+    assert response.status_code == 200, response.text
+    assert response.json()["protect_pdf"] is True
+    persisted = store.path.read_text()
+    assert '"protect_pdf": true' in persisted
+    assert "pdf_password" not in persisted
+    assert client.patch(f"/scheduled-runs/{job.id}", json={"delivery_format": "html"}).status_code == 422
+
+
+def test_protect_pdf_round_trip_contains_boolean_only():
+    from src.scheduled_research.models import ScheduledResearchJob
+
+    job = ScheduledResearchJob(
+        id="safe-job",
+        prompt="report",
+        schedule="60000",
+        next_run_at=1_700_000_000_000,
+        created_at=1_700_000_000_000,
+        delivery_channel="email",
+        delivery_target="reader@example.test",
+        delivery_format="pdf",
+        protect_pdf=True,
+    )
+    encoded = job.to_dict()
+    assert encoded["protect_pdf"] is True
+    assert "pdf_password" not in repr(encoded)
+    assert ScheduledResearchJob.from_dict(encoded).protect_pdf is True
+    unsafe = {**encoded, "config": {"nested": [{"pdf_password": "do-not-save"}]}}
+    with pytest.raises(ValueError, match="must not contain pdf_password"):
+        ScheduledResearchJob.from_dict(unsafe)
+
+
+def test_scheduled_email_dispatch_passes_only_protection_flag(monkeypatch):
+    class Adapter:
+        async def send_with_receipt(self, message):
+            self.message = message
+            return None
+
+    adapter = Adapter()
+    manager = type("Manager", (), {"get_channel": lambda self, name: adapter if name == "email" else None})()
+    monkeypatch.setattr(api_server, "_channel_manager", manager)
+    import asyncio
+
+    asyncio.run(scheduled_routes._send_scheduled_briefing(
+        "email", "reader@example.test", "report", "pdf", True
+    ))
+    assert adapter.message.metadata == {
+        "force_send": True,
+        "delivery_format": "pdf",
+        "protect_pdf": True,
+    }
+    assert "pdf_password" not in repr(adapter.message.metadata)

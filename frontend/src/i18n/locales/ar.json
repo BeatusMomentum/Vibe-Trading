@@ -206,6 +206,9 @@
     "deliveryFormatDefault": "Channel default (plain text)",
     "deliveryFormatHtml": "HTML email",
     "deliveryFormatPdf": "PDF attachment",
+    "proposalPdfProtection": "حماية PDF بكلمة مرور",
+    "proposalPdfProtectionOn": "مفعّلة",
+    "proposalPdfProtectionOff": "غير مفعّلة",
     "deliveryFormatDefaultHint": "Keeps the existing plain-text delivery behavior.",
     "deliveryFormatHtmlHint": "Shows the full report as sanitized HTML in the email body.",
     "deliveryFormatPdfHint": "Attaches the full report as PDF and keeps only a short notice in the body.",
@@ -230,7 +233,9 @@
     "deliveryTargetPlaceholder_channel": "معرّف القناة",
     "deliveryTargetPlaceholder_destination": "معرّف محادثة / مجموعة / مستخدم",
     "deliveryTargetPlaceholder_slack_destination": "#قناة أو @مستخدم أو معرّف محادثة",
-    "deliveryTargetKind_slack_destination": "الوجهة"
+    "deliveryTargetKind_slack_destination": "الوجهة",
+    "deliveryProtectPdf": "Protect PDF with password",
+    "deliveryProtectPdfUnavailable": "No PDF password is configured. Set one in Settings > Channels > Email to enable protection."
   },
   "reports": {
     "badge": "التقارير",
@@ -682,6 +687,10 @@
           "trusted_authserv_id": {
             "label": "خادم المصادقة الموثوق",
             "help": "معرّف authserv-id لخادم الاستلام، مثل mx.google.com. يجب على مزود البريد إزالة ترويسات Authentication-Results الواردة المزوّرة التي تحمل هذا المعرّف. مطلوب عند تفعيل SPF أو DKIM؛ تركه فارغًا يرفض البريد الوارد."
+          },
+          "pdf_password": {
+            "label": "PDF report password",
+            "help": "Optional password for scheduled PDF reports that explicitly request protection. Stored server-side and never included in scheduled jobs or returned to the browser."
           }
         },
         "websocket": {

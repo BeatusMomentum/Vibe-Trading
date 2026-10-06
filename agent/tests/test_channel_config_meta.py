@@ -290,6 +290,7 @@ _EMAIL_HINT_KEYS = (
     "smtp_port",
     "smtp_username",
     "smtp_password",
+    "pdf_password",
     "smtp_use_tls",
     "smtp_use_ssl",
     "verify_tls",
@@ -338,15 +339,17 @@ def test_email_field_hints_contract() -> None:
     keys = tuple(hint["key"] for hint in hints)
     assert keys == _EMAIL_HINT_KEYS
     assert "enabled" not in keys
-    assert len(hints) == 32
+    assert len(hints) == 33
 
     by_key = {hint["key"]: hint for hint in hints}
     assert {key for key, hint in by_key.items() if hint["secret"]} == {
         "imap_password",
         "smtp_password",
+        "pdf_password",
     }
     assert by_key["imap_password"]["type"] == "password"
     assert by_key["smtp_password"]["type"] == "password"
+    assert by_key["pdf_password"]["type"] == "password"
     # required mirrors EmailChannel._validate_config: the channel refuses to
     # start without all six credential fields.
     assert {key for key, hint in by_key.items() if hint["required"]} == {
@@ -359,6 +362,14 @@ def test_email_field_hints_contract() -> None:
     }
     for hint in hints:
         assert hint["help_key"] == f"settings.channels.fields.email.{hint['key']}"
+
+
+def test_email_pdf_password_config_metadata_exposes_presence_only() -> None:
+    value = "private-pdf-password-1234"
+    values, secrets = split_values_secrets("email", {"pdf_password": value})
+    assert values == {}
+    assert secrets["pdf_password"] == {"set": True, "masked": "****"}
+    assert value not in repr((values, secrets))
 
 
 def test_websocket_field_hints_contract() -> None:

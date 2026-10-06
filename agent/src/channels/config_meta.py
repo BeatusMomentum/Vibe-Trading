@@ -167,6 +167,7 @@ def _email_hints() -> list[FieldHint]:
         ("smtp_port", "text", False, False),
         ("smtp_username", "text", False, True),
         ("smtp_password", "password", True, True),
+        ("pdf_password", "password", True, False),
         ("smtp_use_tls", "bool", False, False),
         ("smtp_use_ssl", "bool", False, False),
         ("verify_tls", "bool", False, False),
@@ -332,13 +333,14 @@ def is_secret_key(name: str, key: str) -> bool:
     return bool(SECRET_KEY_RE.search(key))
 
 
-def _mask(value: Any) -> dict[str, Any]:
+def _mask(value: Any, *, reveal_suffix: bool = True) -> dict[str, Any]:
     """Return the ``{set, masked}`` descriptor for one secret value."""
     is_set = bool(value)
     if not is_set:
         return {"set": False, "masked": ""}
     text = str(value)
-    return {"set": True, "masked": "****" if len(text) <= 8 else "****" + text[-4:]}
+    masked = "****" + text[-4:] if reveal_suffix and len(text) > 8 else "****"
+    return {"set": True, "masked": masked}
 
 
 def _strip_url_userinfo(value: Any) -> Any:
@@ -383,7 +385,8 @@ def split_values_secrets(
     secrets: dict[str, dict[str, Any]] = {}
     for key, value in section.items():
         if is_secret_key(name, key):
-            secrets[key] = _mask(value)
+            # The PDF password is deliberately represented by presence only.
+            secrets[key] = _mask(value, reveal_suffix=key != "pdf_password")
         else:
             values[key] = _strip_url_userinfo(value)
     return values, secrets

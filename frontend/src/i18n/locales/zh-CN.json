@@ -206,6 +206,9 @@
     "deliveryFormatDefault": "Channel default (plain text)",
     "deliveryFormatHtml": "HTML email",
     "deliveryFormatPdf": "PDF attachment",
+    "proposalPdfProtection": "PDF 密码保护",
+    "proposalPdfProtectionOn": "开启",
+    "proposalPdfProtectionOff": "关闭",
     "deliveryFormatDefaultHint": "Keeps the existing plain-text delivery behavior.",
     "deliveryFormatHtmlHint": "Shows the full report as sanitized HTML in the email body.",
     "deliveryFormatPdfHint": "Attaches the full report as PDF and keeps only a short notice in the body.",
@@ -230,7 +233,9 @@
     "deliveryTargetPlaceholder_channel": "频道 ID",
     "deliveryTargetPlaceholder_destination": "会话 / 群 / 用户 id",
     "deliveryTargetPlaceholder_slack_destination": "#频道、@用户或会话 ID",
-    "deliveryTargetKind_slack_destination": "目标"
+    "deliveryTargetKind_slack_destination": "目标",
+    "deliveryProtectPdf": "Protect PDF with password",
+    "deliveryProtectPdfUnavailable": "No PDF password is configured. Set one in Settings > Channels > Email to enable protection."
   },
   "reports": {
     "badge": "报告",
@@ -682,6 +687,10 @@
           "trusted_authserv_id": {
             "label": "受信任的认证服务器",
             "help": "收件服务器的 authserv-id，例如 mx.google.com。邮件服务商必须移除外部伪造且使用此 ID 的 Authentication-Results 邮件头。启用 SPF 或 DKIM 验证时必填；留空会拒收邮件。"
+          },
+          "pdf_password": {
+            "label": "PDF report password",
+            "help": "Optional password for scheduled PDF reports that explicitly request protection. Stored server-side and never included in scheduled jobs or returned to the browser."
           }
         },
         "websocket": {

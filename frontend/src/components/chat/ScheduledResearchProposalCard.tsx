@@ -100,6 +100,14 @@ export const ScheduledResearchProposalCard = memo(function ScheduledResearchProp
                   : "scheduled.deliveryFormatDefault")}</dd>
             </div>
           )}
+          {job.delivery.channel === "email" && job.delivery.format === "pdf" && (
+            <div>
+              <dt className="text-muted-foreground">{i18n.t("scheduled.proposalPdfProtection")}</dt>
+              <dd>{i18n.t(job.delivery.protect_pdf === true
+                ? "scheduled.proposalPdfProtectionOn"
+                : "scheduled.proposalPdfProtectionOff")}</dd>
+            </div>
+          )}
         </dl>
       )}
 

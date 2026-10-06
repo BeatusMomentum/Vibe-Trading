@@ -211,6 +211,9 @@
     "deliveryFormatDefault": "Channel default (plain text)",
     "deliveryFormatHtml": "HTML email",
     "deliveryFormatPdf": "PDF attachment",
+    "proposalPdfProtection": "PDF-Passwortschutz",
+    "proposalPdfProtectionOn": "Ein",
+    "proposalPdfProtectionOff": "Aus",
     "deliveryFormatDefaultHint": "Keeps the existing plain-text delivery behavior.",
     "deliveryFormatHtmlHint": "Shows the full report as sanitized HTML in the email body.",
     "deliveryFormatPdfHint": "Attaches the full report as PDF and keeps only a short notice in the body.",
@@ -235,7 +238,9 @@
     "deliveryTargetPlaceholder_channel": "Kanal-ID",
     "deliveryTargetPlaceholder_destination": "Chat- / Gruppen- / Benutzer-ID",
     "deliveryTargetPlaceholder_slack_destination": "#Kanal, @Benutzer oder Konversations-ID",
-    "deliveryTargetKind_slack_destination": "Ziel"
+    "deliveryTargetKind_slack_destination": "Ziel",
+    "deliveryProtectPdf": "Protect PDF with password",
+    "deliveryProtectPdfUnavailable": "No PDF password is configured. Set one in Settings > Channels > Email to enable protection."
   },
   "reports": {
     "badge": "Berichte",
@@ -687,6 +692,10 @@
           "trusted_authserv_id": {
             "label": "Vertrauenswürdiger Authentifizierungsserver",
             "help": "authserv-id des empfangenden Servers, z. B. mx.google.com. Der Mailanbieter muss gefälschte eingehende Authentication-Results-Header mit dieser ID entfernen. Bei SPF- oder DKIM-Prüfung erforderlich; leer wird eingehende Mail abgewiesen."
+          },
+          "pdf_password": {
+            "label": "PDF report password",
+            "help": "Optional password for scheduled PDF reports that explicitly request protection. Stored server-side and never included in scheduled jobs or returned to the browser."
           }
         },
         "websocket": {
