@@ -1379,6 +1379,8 @@ panel = ...  # your wide OHLCV panel
 signal = engine.compute_signal(panel)
 ```
 
+Correlation market inference recognizes explicit crypto pairs; bare equity tickers such as `ABNB` and `SOL` use the US equity data chain.
+
 ### Market Research
 
 ```bash

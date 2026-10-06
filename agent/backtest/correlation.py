@@ -35,7 +35,17 @@ def infer_market(code: str) -> str:
     """
     code_upper = code.strip().upper()
     crypto_suffixes = ("USDT", "BTC", "ETH", "BNB", "SOL", "ADA", "DOGE")
-    if any(code_upper.endswith(s) for s in crypto_suffixes) or "/" in code:
+    if (
+        "/" in code_upper
+        or any(
+            code_upper.endswith("-" + quote)
+            for quote in (*crypto_suffixes, "USD", "USDC")
+        )
+        or re.fullmatch(
+            r"(?:[A-Z0-9]{2,}(?:USDT|USDC|BTC|ETH|BNB|SOL|ADA|DOGE)|(?:BTC|ETH|BNB|SOL|ADA|DOGE)USD)",
+            code_upper,
+        )
+    ):
         return "crypto"
     if code_upper.endswith(".HK"):
         return "hk_equity"
