@@ -858,7 +858,7 @@ that is a bug, not a pattern.
 | `attribution` | Brinson-Fachler decomposition |
 | `performance` · `fundmath` | TWR / MWR / Modified Dietz; XIRR / MOIC / DPI / TVPI |
 | `factormodel` · `eventstudy` | Factor regressions, event studies |
-| `multipletesting` · `crossvalidation` | Deflated significance, purged CV |
+| `multipletesting` · `crossvalidation` | Deflated significance, purged CV; purged walk-forward splits omit folds with no training observations left after purging. |
 | `impact` | Market-impact models |
 | `volatility` | Heston (1993) stochastic-volatility pricing |
 | `portfolio` | Hierarchical Risk Parity allocation |
