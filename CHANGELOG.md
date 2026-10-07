@@ -13,7 +13,9 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   CLI playbooks and agent proposals. Confirmation surfaces show the format. Format edits
   persist, active sends cannot be overwritten, and desktop PDF delivery uses
   the packaged renderer when native libraries are unavailable, with embedded
-  CJK/Arabic fonts and tested multiline/table pagination.
+  CJK/Arabic fonts and tested multiline/table pagination. Email PDF delivery
+  also supports optional AES-256 password protection using an operator-managed
+  Email channel secret; scheduled jobs store only the boolean choice.
 - **Structured backtest summaries and paged artifact reads** (#1646, #1647,
   resolves #1644 and #1645). Complete scalar metrics, structured metrics and
   validation accompany endpoint-preserving equity previews and OHLCV paths.

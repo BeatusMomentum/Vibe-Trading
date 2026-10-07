@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+from io import BytesIO
 import sys
 from types import SimpleNamespace
+
+import pytest
+from pypdf import PdfReader
 
 from src.channels.bus.events import OutboundMessage
 from src.channels.bus.queue import MessageBus
@@ -10,17 +14,28 @@ from src.channels.email import EmailChannel
 from src.channels.rich_text import render_email_html
 
 
-def _channel() -> EmailChannel:
+def _channel(*, pdf_password: str = "") -> EmailChannel:
     return EmailChannel(
         {
             "consent_granted": True,
             "smtp_host": "smtp.example.test",
             "smtp_username": "bot@example.test",
             "smtp_password": "secret",
+            "pdf_password": pdf_password,
             "from_address": "bot@example.test",
         },
         MessageBus(),
     )
+
+
+def _sample_pdf(text: str) -> bytes:
+    from reportlab.pdfgen.canvas import Canvas
+
+    buffer = BytesIO()
+    canvas = Canvas(buffer)
+    canvas.drawString(72, 720, text)
+    canvas.save()
+    return buffer.getvalue()
 
 
 def test_rich_email_renderer_preserves_markdown_and_sanitizes_html():
@@ -88,7 +103,7 @@ def test_per_message_pdf_keeps_report_out_of_body(monkeypatch):
 
         def write_pdf(self) -> bytes:
             assert "Portfolio value: 123456" in self.string
-            return b"%PDF-1.7\n%%EOF\n"
+            return _sample_pdf("Portfolio value: 123456")
 
     monkeypatch.setitem(sys.modules, "weasyprint", SimpleNamespace(HTML=FakeHTML))
     monkeypatch.setattr("src.channels.rich_text._WEASYPRINT_HTML", None)
@@ -116,7 +131,61 @@ def test_per_message_pdf_keeps_report_out_of_body(monkeypatch):
     ]
     assert len(pdf_parts) == 1
     assert pdf_parts[0].get_filename() == "vibe-trading-report.pdf"
-    assert pdf_parts[0].get_payload(decode=True).startswith(b"%PDF")
+    pdf_data = pdf_parts[0].get_payload(decode=True)
+    assert pdf_data.startswith(b"%PDF")
+    assert not PdfReader(BytesIO(pdf_data)).is_encrypted
+
+
+def test_pdf_delivery_encrypts_with_configured_password(monkeypatch):
+    monkeypatch.setattr("src.channels.rich_text.render_email_pdf", lambda _text: _sample_pdf("Protected report content"))
+    channel = _channel(pdf_password="correct horse battery staple")
+    sent = []
+    monkeypatch.setattr(channel, "_smtp_send", lambda message: sent.append(message))
+
+    asyncio.run(channel.send(OutboundMessage(
+        channel="email",
+        chat_id="reader@example.test",
+        content="Protected report content",
+        metadata={"delivery_format": "pdf", "protect_pdf": True},
+    )))
+
+    pdf_part = next(part for part in sent[0].iter_attachments() if part.get_content_type() == "application/pdf")
+    encrypted = pdf_part.get_payload(decode=True)
+    reader = PdfReader(BytesIO(encrypted))
+    assert reader.is_encrypted
+    assert reader.decrypt("wrong password") == 0
+    assert reader.decrypt("correct horse battery staple") != 0
+    assert "Protected report content" in "".join(page.extract_text() or "" for page in reader.pages)
+
+
+def test_protected_pdf_without_password_fails_closed(monkeypatch):
+    channel = _channel()
+    sent = []
+    monkeypatch.setattr(channel, "_smtp_send", lambda message: sent.append(message))
+    with pytest.raises(RuntimeError, match="no PDF password is configured"):
+        asyncio.run(channel.send(OutboundMessage(
+            channel="email",
+            chat_id="reader@example.test",
+            content="Secret report",
+            metadata={"delivery_format": "pdf", "protect_pdf": True},
+        )))
+    assert sent == []
+
+
+def test_pdf_password_is_not_in_email_config_repr():
+    password = "private-pdf-password-1234"
+    assert password not in repr(_channel(pdf_password=password).config)
+
+
+def test_pdf_protection_rejects_non_pdf_delivery():
+    channel = _channel(pdf_password="private-password")
+    with pytest.raises(ValueError, match="requires PDF delivery"):
+        asyncio.run(channel.send(OutboundMessage(
+            channel="email",
+            chat_id="reader@example.test",
+            content="report",
+            metadata={"delivery_format": "html", "protect_pdf": True},
+        )))
 
 
 def test_pdf_failure_never_sends_report_as_plain_text(monkeypatch):

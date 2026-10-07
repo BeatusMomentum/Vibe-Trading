@@ -14,6 +14,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
       updateScheduledRun: vi.fn(),
       deleteScheduledRun: vi.fn(),
       getChannelStatus: vi.fn(),
+      getChannelsConfig: vi.fn(),
     },
   };
 });
@@ -24,6 +25,7 @@ const mocked = api as unknown as {
   updateScheduledRun: ReturnType<typeof vi.fn>;
   deleteScheduledRun: ReturnType<typeof vi.fn>;
   getChannelStatus: ReturnType<typeof vi.fn>;
+  getChannelsConfig: ReturnType<typeof vi.fn>;
 };
 
 function run(overrides: Partial<ScheduledRun> = {}): ScheduledRun {
@@ -62,6 +64,9 @@ function run(overrides: Partial<ScheduledRun> = {}): ScheduledRun {
 beforeEach(() => {
   vi.clearAllMocks();
   mocked.listScheduledRuns.mockResolvedValue([]);
+  mocked.getChannelsConfig.mockResolvedValue({
+    channels: { email: { pdf_password_configured: true } },
+  });
   mocked.getChannelStatus.mockResolvedValue({
     running: true,
     inbound_queue: 0,
@@ -150,6 +155,51 @@ describe("Scheduled page", () => {
         }),
       ),
     );
+  });
+
+  it("offers PDF protection only for PDF email delivery and sends the boolean choice", async () => {
+    mocked.createScheduledRun.mockResolvedValue(run({
+      delivery_channel: "email",
+      delivery_format: "pdf",
+      protect_pdf: true,
+    }));
+    render(<Scheduled />);
+    await screen.findByText(/No scheduled runs yet/);
+    fireEvent.change(screen.getByLabelText("Research prompt"), {
+      target: { value: "send a protected report" },
+    });
+    fireEvent.change(screen.getByLabelText("Delivery channel"), { target: { value: "email" } });
+    fireEvent.change(screen.getByLabelText("Recipient email address"), {
+      target: { value: "reader@example.test" },
+    });
+    expect(screen.queryByLabelText("Protect PDF with password")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Email report format"), { target: { value: "pdf" } });
+    const protect = await screen.findByLabelText("Protect PDF with password");
+    fireEvent.click(protect);
+    fireEvent.submit(screen.getByRole("button", { name: /Schedule run/ }));
+
+    await waitFor(() => expect(mocked.createScheduledRun).toHaveBeenCalledWith(
+      expect.objectContaining({ delivery_format: "pdf", protect_pdf: true }),
+    ));
+  });
+
+  it("keeps PDF protection unavailable until the Email secret is configured", async () => {
+    mocked.getChannelsConfig.mockResolvedValue({
+      channels: { email: { pdf_password_configured: false } },
+    });
+    render(<Scheduled />);
+    await screen.findByText(/No scheduled runs yet/);
+    fireEvent.change(screen.getByLabelText("Research prompt"), {
+      target: { value: "send a report" },
+    });
+    fireEvent.change(screen.getByLabelText("Delivery channel"), { target: { value: "email" } });
+    fireEvent.change(screen.getByLabelText("Recipient email address"), {
+      target: { value: "reader@example.test" },
+    });
+    fireEvent.change(screen.getByLabelText("Email report format"), { target: { value: "pdf" } });
+
+    expect(await screen.findByLabelText("Protect PDF with password")).toBeDisabled();
+    expect(screen.getByText(/No PDF password is configured/)).toBeInTheDocument();
   });
 
 

@@ -226,6 +226,9 @@ def _channel_entry(name: str, section: dict[str, Any], status_map: dict[str, Any
         "fields": channel_field_hints(name),
         "values": values,
         "secrets": secrets,
+        "pdf_password_configured": bool(
+            name == "email" and secrets.get("pdf_password", {}).get("set")
+        ),
     }
 
 

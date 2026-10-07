@@ -213,6 +213,9 @@
     "deliveryFormatDefault": "Predeterminado del canal (texto plano)",
     "deliveryFormatHtml": "Email HTML",
     "deliveryFormatPdf": "PDF adjunto",
+    "proposalPdfProtection": "Protección del PDF con contraseña",
+    "proposalPdfProtectionOn": "Activada",
+    "proposalPdfProtectionOff": "Desactivada",
     "deliveryFormatDefaultHint": "Mantiene el comportamiento de texto plano existente.",
     "deliveryFormatHtmlHint": "Muestra el informe completo como HTML sanitizado en el cuerpo del email.",
     "deliveryFormatPdfHint": "Adjunta el informe completo como PDF y deja solo un aviso breve en el cuerpo.",
@@ -235,7 +238,9 @@
     "deliveryTargetPlaceholder_channel": "ID del canal",
     "deliveryTargetPlaceholder_destination": "chat, grupo, usuario, dirección o ID de canal",
     "deliveryTargetPlaceholder_slack_destination": "#canal, @usuario o ID de conversación",
-    "deliveryTargetKind_slack_destination": "Destino"
+    "deliveryTargetKind_slack_destination": "Destino",
+    "deliveryProtectPdf": "Proteger el PDF con contraseña",
+    "deliveryProtectPdfUnavailable": "No hay una contraseña PDF configurada. Configurala en Configuración > Canales > Email para habilitar la protección."
   },
   "reports": {
     "badge": "Informes",
@@ -687,6 +692,10 @@
           "trusted_authserv_id": {
             "label": "Servidor de autenticación de confianza",
             "help": "authserv-id del servidor receptor, p. ej. mx.google.com. Tu proveedor debe eliminar las cabeceras Authentication-Results falsificadas entrantes que usen este ID. Obligatorio al verificar SPF o DKIM; vacío rechaza el correo entrante."
+          },
+          "pdf_password": {
+            "label": "Contraseña de informes PDF",
+            "help": "Contraseña opcional para los informes PDF programados que soliciten protección. Se guarda en el servidor y nunca se incluye en los trabajos programados ni se devuelve al navegador."
           }
         },
         "websocket": {

@@ -3,6 +3,7 @@
 import asyncio
 import html
 import imaplib
+from io import BytesIO
 import logging
 import mimetypes
 import re
@@ -55,6 +56,8 @@ class EmailConfig(BaseModel):
     smtp_port: int = 587
     smtp_username: str = ""
     smtp_password: str = ""
+    # Operator-managed secret used only for explicitly protected PDF reports.
+    pdf_password: str = Field(default="", repr=False)
     smtp_use_tls: bool = True
     smtp_use_ssl: bool = False
     # Certificate + hostname verification on every TLS path (implicit SSL and
@@ -343,6 +346,12 @@ class EmailChannel(BaseChannel):
         delivery_format = (msg.metadata or {}).get("delivery_format")
         if delivery_format not in {"html", "pdf"}:
             delivery_format = None
+        metadata = msg.metadata or {}
+        protect_pdf = metadata.get("protect_pdf") is True
+        if protect_pdf and delivery_format != "pdf":
+            raise ValueError("PDF protection requires PDF delivery")
+        if protect_pdf and not self.config.pdf_password:
+            raise RuntimeError("PDF protection requested but no PDF password is configured")
 
         email_msg = EmailMessage()
         email_msg["From"] = self.config.from_address or self.config.smtp_username or self.config.imap_username
@@ -360,6 +369,8 @@ class EmailChannel(BaseChannel):
                 from src.channels.rich_text import render_email_pdf
 
                 generated_pdf = await asyncio.to_thread(render_email_pdf, content)
+                if protect_pdf:
+                    generated_pdf = await asyncio.to_thread(self._encrypt_pdf, generated_pdf)
             except Exception:
                 self.logger.exception("Failed to render required PDF attachment")
                 raise
@@ -393,6 +404,26 @@ class EmailChannel(BaseChannel):
         except Exception:
             self.logger.exception("Error sending to %s", to_addr)
             raise
+
+    def _encrypt_pdf(self, pdf_data: bytes) -> bytes:
+        """Encrypt a generated PDF with the private channel password."""
+        password = self.config.pdf_password
+        if not password:
+            raise RuntimeError("PDF protection requested but no PDF password is configured")
+
+        try:
+            from pypdf import PdfReader, PdfWriter
+
+            reader = PdfReader(BytesIO(pdf_data))
+            writer = PdfWriter()
+            writer.append_pages_from_reader(reader)
+            writer.encrypt(user_password=password, algorithm="AES-256")
+            output = BytesIO()
+            writer.write(output)
+            return output.getvalue()
+        except Exception:
+            # Keep dependency/parser errors from reflecting secret input.
+            raise RuntimeError("PDF protection failed") from None
 
     def _validate_config(self) -> bool:
         missing = []

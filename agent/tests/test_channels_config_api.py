@@ -1362,3 +1362,29 @@ def test_email_authentication_trust_anchor_is_editable_in_generic_form(tmp_path,
     response = client.put("/channels/config/email", json={"config": {"trusted_authserv_id": "mx.example.test"}})
     assert response.status_code == 200
     assert json.loads(path.read_text())["channels"]["email"]["trusted_authserv_id"] == "mx.example.test"
+
+
+def test_email_pdf_password_config_exposes_presence_only(tmp_path, monkeypatch):
+    password = "private-pdf-password-123456"
+    client, path = _client(
+        tmp_path, monkeypatch,
+        channels={"email": _email_section(pdf_password=password)},
+    )
+    response = client.get("/channels/config")
+    assert response.status_code == 200
+    entry = response.json()["channels"]["email"]
+    assert entry["pdf_password_configured"] is True
+    assert entry["secrets"]["pdf_password"] == {"set": True, "masked": "****"}
+    assert "pdf_password" not in entry["values"]
+    assert password not in response.text
+    update = client.put(
+        "/channels/config/email", json={"config": {"pdf_password": "replacement-password"}}
+    )
+    assert update.status_code == 200, update.text
+    assert update.json()["channel"]["pdf_password_configured"] is True
+    assert "replacement-password" not in update.text
+    assert json.loads(path.read_text())["channels"]["email"]["pdf_password"] == "replacement-password"
+
+    client, _path = _client(tmp_path, monkeypatch, channels={"email": _email_section()})
+    entry = client.get("/channels/config").json()["channels"]["email"]
+    assert entry["pdf_password_configured"] is False

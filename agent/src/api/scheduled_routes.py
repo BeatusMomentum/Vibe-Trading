@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from starlette.responses import Response
 
 from src.config.accessor import get_env_config
+from src.scheduled_research.models import contains_pdf_password
 
 if TYPE_CHECKING:
     from src.scheduled_research.models import ScheduledResearchJob
@@ -116,7 +117,11 @@ def _read_scheduled_briefing(session_id: str) -> Optional[tuple[str, str]]:
 
 
 async def _send_scheduled_briefing(
-    channel: str, target: Optional[str], text: str, delivery_format: Optional[str] = None
+    channel: str,
+    target: Optional[str],
+    text: str,
+    delivery_format: Optional[str] = None,
+    protect_pdf: bool = False,
 ):
     """Deliver one briefing through the configured IM channel.
 
@@ -125,6 +130,7 @@ async def _send_scheduled_briefing(
         target: Address within that channel, or ``None`` for its default.
         text: The briefing to deliver.
         delivery_format: Optional presentation hint for channels that support it.
+        protect_pdf: Whether the generated PDF must be password protected.
 
     Raises:
         RuntimeError: If the channel runtime is unavailable or has no such
@@ -145,6 +151,8 @@ async def _send_scheduled_briefing(
     metadata = {"force_send": True}
     if delivery_format:
         metadata["delivery_format"] = delivery_format
+    if protect_pdf:
+        metadata["protect_pdf"] = True
     return await adapter.send_with_receipt(
         OutboundMessage(channel=channel, chat_id=target, content=text, metadata=metadata)
     )
@@ -250,6 +258,7 @@ class CreateScheduledRunRequest(BaseModel):
     delivery_format: Optional[Literal["html", "pdf"]] = Field(
         None, description="Email report presentation: HTML body or PDF attachment"
     )
+    protect_pdf: bool = Field(False, description="Password-protect the generated PDF")
     end_at: Optional[int] = Field(
         None, description="Epoch-ms boundary after which no further run is dispatched"
     )
@@ -288,6 +297,7 @@ class UpdateScheduledRunRequest(BaseModel):
     delivery_format: Optional[Literal["html", "pdf"]] = Field(
         None, description="Email presentation; null restores plain text"
     )
+    protect_pdf: Optional[bool] = Field(None, description="Replace the PDF protection choice")
     end_at: Optional[int] = Field(
         None, description="Replacement epoch-ms end boundary; null removes it"
     )
@@ -354,6 +364,7 @@ class CreateRunFromPlaybookRequest(BaseModel):
     end_at: Optional[int] = None
     delivery_target_ref: Optional[str] = None
     delivery_format: Optional[Literal["html", "pdf"]] = None
+    protect_pdf: bool = False
 
 
 class ScheduledRunResponse(BaseModel):
@@ -380,6 +391,7 @@ class ScheduledRunResponse(BaseModel):
     delivery_target_ref: Optional[str] = None
     delivery_target_label: Optional[str] = None
     delivery_format: Optional[str] = None
+    protect_pdf: bool = False
     delivery_status: str = "none"
     delivery_error: Optional[str] = None
     delivery_updated_at: Optional[int] = None
@@ -413,6 +425,23 @@ def _job_to_response(job: ScheduledResearchJob) -> "ScheduledRunResponse":
         delivery_attempts=delivery.get("attempts", 0),
         delivery_provider_message_id=delivery.get("provider_message_id"),
     )
+
+
+def _email_pdf_password_configured() -> bool:
+    """Read only whether the private Email PDF password is configured."""
+    host = _sys.modules.get("api_server") or _sys.modules.get("agent.api_server")
+    manager = getattr(host, "_channel_manager", None) if host else None
+    adapter = manager.get_channel("email") if manager is not None else None
+    if adapter is not None:
+        return bool(getattr(getattr(adapter, "config", None), "pdf_password", ""))
+    try:
+        from src.channels.config import load_channels_config
+
+        section = load_channels_config().get("email", {})
+        return bool(section.get("pdf_password")) if isinstance(section, dict) else False
+    except Exception:
+        # A configuration read/parse failure must not authorize protected jobs.
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -483,6 +512,8 @@ def register_scheduled_routes(
                     "'_' or '-'"
                 ),
             )
+        if contains_pdf_password(request.config):
+            raise HTTPException(status_code=422, detail="config must not include pdf_password")
 
         try:
             validate_schedule(request.schedule)
@@ -540,6 +571,15 @@ def register_scheduled_routes(
                 status_code=422,
                 detail="delivery_format is supported only for email delivery",
             )
+        if request.protect_pdf and request.delivery_format != "pdf":
+            raise HTTPException(status_code=422, detail="protect_pdf requires PDF email delivery")
+        if request.protect_pdf and delivery_channel != "email":
+            raise HTTPException(status_code=422, detail="protect_pdf requires Email delivery")
+        if request.protect_pdf and not _email_pdf_password_configured():
+            raise HTTPException(
+                status_code=422,
+                detail="PDF protection requested but no PDF password is configured",
+            )
 
         job = ScheduledResearchJob(
             id=request.id or str(uuid.uuid4()),
@@ -557,6 +597,7 @@ def register_scheduled_routes(
             delivery_target_ref=request.delivery_target_ref,
             delivery_target_label=delivery_target_label,
             delivery_format=request.delivery_format,
+            protect_pdf=request.protect_pdf,
         )
         _get_scheduled_research_store().upsert(job)
         return _job_to_response(job)
@@ -671,6 +712,8 @@ def register_scheduled_routes(
 
         timezone = job.timezone if "timezone" not in fields else request.timezone
         config = job.config if "config" not in fields else (request.config or {})
+        if contains_pdf_password(config):
+            raise HTTPException(status_code=422, detail="config must not include pdf_password")
         end_at = job.end_at if "end_at" not in fields else request.end_at
 
         try:
@@ -710,6 +753,7 @@ def register_scheduled_routes(
             "delivery_channel",
             "delivery_target",
             "delivery_target_ref",
+            "protect_pdf",
         }
         delivery_requested = bool(delivery_fields & fields)
         delivery_channel = job.delivery_channel
@@ -753,16 +797,30 @@ def register_scheduled_routes(
                     )
 
         delivery_format = job.delivery_format
+        protect_pdf = job.protect_pdf
         if "delivery_format" in fields:
             delivery_format = request.delivery_format
-        elif delivery_channel != "email":
+        if "protect_pdf" in fields:
+            protect_pdf = request.protect_pdf is True
+        if delivery_channel != "email" and "delivery_format" not in fields:
             delivery_format = None
         if delivery_format is not None and delivery_channel != "email":
             raise HTTPException(
                 status_code=422, detail="delivery_format is supported only for email delivery"
             )
+        if delivery_channel != "email":
+            protect_pdf = False
+        if protect_pdf and delivery_format != "pdf":
+            raise HTTPException(status_code=422, detail="protect_pdf requires PDF email delivery")
+        if protect_pdf and delivery_channel != "email":
+            raise HTTPException(status_code=422, detail="protect_pdf requires Email delivery")
+        if protect_pdf and not _email_pdf_password_configured():
+            raise HTTPException(
+                status_code=422,
+                detail="PDF protection requested but no PDF password is configured",
+            )
 
-        delivery_changed = delivery_format != job.delivery_format or delivery_requested and (
+        delivery_changed = delivery_format != job.delivery_format or protect_pdf != job.protect_pdf or delivery_requested and (
             delivery_channel != job.delivery_channel
             or delivery_target != job.delivery_target
             or delivery_target_ref != job.delivery_target_ref
@@ -778,6 +836,7 @@ def register_scheduled_routes(
         job.next_run_at = next_run_at
         if delivery_changed:
             job.delivery_format = delivery_format
+            job.protect_pdf = protect_pdf
             job.delivery_channel = delivery_channel
             job.delivery_target = delivery_target
             job.delivery_target_ref = delivery_target_ref
@@ -913,12 +972,19 @@ def register_scheduled_routes(
                 next_run_at=request.next_run_at,
                 delivery_target_ref=request.delivery_target_ref,
                 delivery_format=request.delivery_format,
+                protect_pdf=request.protect_pdf,
                 **kwargs,
             )
         except ValueError as exc:
             # Covers PlaybookError (undeclared/oversized variable) and the
             # schedule / timezone / cron-window failures, all ValueError.
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        if job.protect_pdf and not _email_pdf_password_configured():
+            raise HTTPException(
+                status_code=422,
+                detail="PDF protection requested but no PDF password is configured",
+            )
 
         now_ms = int(time.time() * 1000)
         if request.end_at is not None:

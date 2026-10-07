@@ -1556,6 +1556,11 @@ that surface action calls the commit endpoint. Create drafts carry `title`, `sou
 Scheduled delivery is channel-agnostic. Configure reusable opaque target refs
 under `channels.deliveryTargets`; the agent tool and its confirmation surfaces
 expose the ref, label, and channel but never the provider's raw chat/user id.
+For Email PDF reports, an operator can set the private `pdf_password` field in
+Settings → IM Channels → Email. The Scheduled page then offers optional PDF
+protection only for PDF delivery. The password stays in Email channel config;
+jobs persist only the protection boolean, and requesting protection without a
+configured password is rejected.
 The existing direct REST/admin fields remain available for backward
 compatibility:
 

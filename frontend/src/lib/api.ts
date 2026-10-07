@@ -693,6 +693,7 @@ export interface ScheduledRun {
   delivery_channel: string | null;
   delivery_target: string | null;
   delivery_format: "html" | "pdf" | null;
+  protect_pdf: boolean;
   delivery_target_ref: string | null;
   delivery_target_label: string | null;
   delivery_status: string;
@@ -716,6 +717,7 @@ export interface CreateScheduledRunRequest {
   delivery_channel?: string | null;
   delivery_target?: string | null;
   delivery_format?: "html" | "pdf" | null;
+  protect_pdf?: boolean;
   delivery_target_ref?: string | null;
 }
 
@@ -730,6 +732,7 @@ export interface UpdateScheduledRunRequest {
   delivery_target?: string | null;
   delivery_target_ref?: string | null;
   delivery_format?: "html" | "pdf" | null;
+  protect_pdf?: boolean;
 }
 
 export interface ScheduledResearchProposalJob {
@@ -748,6 +751,7 @@ export interface ScheduledResearchProposalJob {
     target_ref: string | null;
     target_label: string | null;
     format?: "html" | "pdf" | null;
+    protect_pdf?: boolean;
     status: string;
   };
 }
@@ -945,6 +949,7 @@ export interface ChannelConfigEntry {
   fields: ChannelFieldHint[];
   values: Record<string, unknown>;
   secrets: Record<string, ChannelSecretStatus>;
+  pdf_password_configured?: boolean;
 }
 
 export interface ChannelsConfigResponse {

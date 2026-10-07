@@ -211,6 +211,9 @@
     "deliveryFormatDefault": "Channel default (plain text)",
     "deliveryFormatHtml": "HTML email",
     "deliveryFormatPdf": "PDF attachment",
+    "proposalPdfProtection": "Proteção do PDF por senha",
+    "proposalPdfProtectionOn": "Ativada",
+    "proposalPdfProtectionOff": "Desativada",
     "deliveryFormatDefaultHint": "Keeps the existing plain-text delivery behavior.",
     "deliveryFormatHtmlHint": "Shows the full report as sanitized HTML in the email body.",
     "deliveryFormatPdfHint": "Attaches the full report as PDF and keeps only a short notice in the body.",
@@ -235,7 +238,9 @@
     "deliveryTargetPlaceholder_channel": "ID do canal",
     "deliveryTargetPlaceholder_destination": "chat / grupo / ID de usuário",
     "deliveryTargetPlaceholder_slack_destination": "#canal, @usuário ou ID da conversa",
-    "deliveryTargetKind_slack_destination": "Destino"
+    "deliveryTargetKind_slack_destination": "Destino",
+    "deliveryProtectPdf": "Protect PDF with password",
+    "deliveryProtectPdfUnavailable": "No PDF password is configured. Set one in Settings > Channels > Email to enable protection."
   },
   "reports": {
     "badge": "Relatórios",
@@ -687,6 +692,10 @@
           "trusted_authserv_id": {
             "label": "Servidor de autenticação confiável",
             "help": "authserv-id do servidor receptor, por exemplo mx.google.com. O provedor deve remover cabeçalhos Authentication-Results recebidos e forjados com esse ID. Obrigatório ao verificar SPF ou DKIM; vazio rejeita emails recebidos."
+          },
+          "pdf_password": {
+            "label": "PDF report password",
+            "help": "Optional password for scheduled PDF reports that explicitly request protection. Stored server-side and never included in scheduled jobs or returned to the browser."
           }
         },
         "websocket": {
