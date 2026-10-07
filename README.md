@@ -52,15 +52,19 @@
 
 > ⚠️ **Security warning:** The X account `VibeTrading_HKU`, Virtuals project `101845`, and token contract `0x640BDBF77b6447E8b7DB7894cED84BD1c40571f4` are not official Vibe-Trading assets. We have never launched or endorsed any token or memecoin. Do not buy, connect a wallet, or sign anything. [Details](SECURITY.md#official-channels--impersonation).
 
+- **2026-10-08** 🔐 **Protected PDF reports and clearer broker reads**: Scheduled Email PDFs support optional AES-256 password protection across Web, CLI playbooks and agent confirmations; the password stays in private channel configuration ([#1709](https://github.com/HKUDS/Vibe-Trading/pull/1709)). KIS queries all three venue buckets, refreshes an explicitly expired token once, and reports incomplete reads as errors ([#1726](https://github.com/HKUDS/Vibe-Trading/pull/1726)). Derived formulas keep their arithmetic after descriptive labels while evidence checks remain enforced ([#1728](https://github.com/HKUDS/Vibe-Trading/pull/1728)).
+
+- **2026-10-07** 🛠️ **Research continuity and reliable risk metrics**: Volatile workspace state now travels outside the system prompt, preserving its stable prefix ([#1708](https://github.com/HKUDS/Vibe-Trading/pull/1708)). Cross-market dates align correctly, missing prices no longer bridge return observations, and options Sortino uses full-sample downside deviation ([#1710](https://github.com/HKUDS/Vibe-Trading/pull/1710), [#1717](https://github.com/HKUDS/Vibe-Trading/pull/1717), [#1727](https://github.com/HKUDS/Vibe-Trading/pull/1727)). Loader fixtures share one OHLCV contract; credit valuation, style exposures, walk-forward folds and audit diagnostics are corrected.
+
 - **2026-10-06** 🛠️ **Live controls and report corrections**: Stopping a live runner cancels its current analysis and waits for scheduler cleanup, including startup cancellation and API shutdown; status timestamps use the correct units ([#1704](https://github.com/HKUDS/Vibe-Trading/pull/1704)). Emergency cancel/flatten scans skip malformed records without abandoning the remaining book ([#1703](https://github.com/HKUDS/Vibe-Trading/pull/1703)); broker schedules are stored separately and writes handle concurrency and partial writes. US equity half-days respect the early closing bell ([#1706](https://github.com/HKUDS/Vibe-Trading/pull/1706)). Report corrections preserve figures that passed validation, and bounded feedback no longer implies that unlisted figures passed ([#1702](https://github.com/HKUDS/Vibe-Trading/pull/1702)).
+
+<details>
+<summary>Earlier news</summary>
 
 - **2026-10-05** 🛠️ **Research prompts and calculation fixes**: Chat accepts longer research prompts and gives a localized recovery message when input is too large ([#1701](https://github.com/HKUDS/Vibe-Trading/pull/1701)). Backtests use full-sample Sortino downside deviation; grouped validation purges overlapping labels, covariance weights remain finite, shadow RSI uses Wilder seeds, and memory removal accepts filename stems. Invalid call aliases now receive exact source references for correction ([#1638](https://github.com/HKUDS/Vibe-Trading/pull/1638)); numeric validation stays unchanged.
 
 - **2026-10-04** 🛠️ **Scheduled reports and research workflows**: Edit scheduled runs and choose a configured destination; Email reports support HTML or PDF attachments ([#1649](https://github.com/HKUDS/Vibe-Trading/pull/1649), [#1680](https://github.com/HKUDS/Vibe-Trading/pull/1680)).
   Backtests expose structured summaries and paged artifact reads ([#1646](https://github.com/HKUDS/Vibe-Trading/pull/1646), [#1647](https://github.com/HKUDS/Vibe-Trading/pull/1647)). Fixes cover memory-search snippets, export-path guidance, macro truncation, monthly risk, turnover on reversals and cash reentry, IV accuracy, VaR gaps, VCS updates and Robinhood option-order blocking.
-
-<details>
-<summary>Earlier news</summary>
 
 - **2026-10-03** 🛠️ **Research, reports and data reliability**: CJK session search, channel setup, broker exposure pricing and file writes now handle cases that blocked everyday use. PDF delivery embeds CJK fonts, Swarm validates preset inputs and separates task artifacts, and replayed tool results survive context compaction ([#1683](https://github.com/HKUDS/Vibe-Trading/pull/1683), [#1455](https://github.com/HKUDS/Vibe-Trading/pull/1455), [#1635](https://github.com/HKUDS/Vibe-Trading/pull/1635)). Backtests keep one adjustment basis, local caches distinguish sources, single-asset caps and weekly/monthly risk use the declared settings, audits retain loss signs, grounding checks the current engine output and exact list references, and Stooq retries after a denial cooldown ([#1684](https://github.com/HKUDS/Vibe-Trading/pull/1684), [#1650](https://github.com/HKUDS/Vibe-Trading/pull/1650), [#1685](https://github.com/HKUDS/Vibe-Trading/pull/1685), [#1640](https://github.com/HKUDS/Vibe-Trading/pull/1640)).
 
@@ -1561,6 +1565,15 @@ Settings → IM Channels → Email. The Scheduled page then offers optional PDF
 protection only for PDF delivery. The password stays in Email channel config;
 jobs persist only the protection boolean, and requesting protection without a
 configured password is rejected.
+
+For CLI playbooks, add `--protect-pdf` alongside `--delivery-format pdf` and
+an Email destination, for example:
+
+```bash
+vibe-trading playbook create premarket-brief --delivery-target-ref research-email \
+  --delivery-format pdf --protect-pdf
+```
+
 The existing direct REST/admin fields remain available for backward
 compatibility:
 

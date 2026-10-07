@@ -5,6 +5,37 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Maintenance — 2026-10-08
+
+- Optional AES-256 protection for Email PDF reports (#1709): Web, CLI
+  playbooks and Agent proposals persist only the boolean choice. Confirmations
+  show it, and creation or confirmation refuses an unconfigured password.
+  The private Email setting is translated in all nine UI languages.
+- KIS order and fill reads query KRX, SOR and NXT, deduplicate records and fail
+  incomplete venue reads (#1726). An explicitly expired token is refreshed
+  once, including HTTP 200 business errors and 401/403 replies; other business
+  errors remain failures.
+- Derived formulas parse the complete expression after a descriptive label
+  while retaining operand evidence and arithmetic validation (#1728).
+
+### Maintenance — 2026-10-07
+
+- Move volatile workspace state outside the system prompt (#1708, resolves
+  #1707); align local daily dates across markets (#1710) and distinguish bare
+  equity tickers from explicit crypto pairs (#1711).
+- A-share benchmarks follow the declared exchange suffix (#1712), and loader
+  suites share the live health checker’s OHLCV contract (#1725, resolves #1723),
+  including Binance and a catalog assertion for newly registered sources.
+- OU lag pairs retain gaps (#1713), walk-forward validation skips empty purged
+  training folds (#1714), undefined correlations remain missing (#1715), and
+  risk X-ray returns do not bridge missing observations (#1717).
+- CDS premium legs include the final stub (#1716); style exposure excludes
+  incomplete rows and reports unmatched weight (#1718); Heston rejects
+  nonfinite inputs and invalid integration bounds (#1719); options Sortino
+  uses the full return sample for downside deviation (#1727).
+- Session search respects a zero limit (#1720), and archive audit diagnostics
+  use the shared ledger walker to report malformed records (#1721).
+
 ### Added
 
 - **Editable scheduled delivery and rich Email reports** (#1649, #1680).
