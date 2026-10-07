@@ -12,7 +12,6 @@ from typing import Any, Dict, List
 import pandas as pd
 
 from backtest.loaders import finnhub_loader
-from backtest.loaders import finnhub_loader
 from tests.loader_contract import assert_loader_contract
 from backtest.loaders.finnhub_loader import (
     DataLoader,

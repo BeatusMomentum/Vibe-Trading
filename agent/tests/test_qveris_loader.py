@@ -13,7 +13,6 @@ import pandas as pd
 import pytest
 
 from backtest.loaders import qveris_loader as qv
-from backtest.loaders import qveris_loader as qv
 from tests.loader_contract import assert_loader_contract
 from backtest.loaders.base import NoAvailableSourceError
 from backtest.loaders.registry import (

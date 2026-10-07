@@ -18,7 +18,6 @@ import pytest
 import requests
 
 from backtest.loaders import stooq_loader
-from backtest.loaders import stooq_loader
 from tests.loader_contract import assert_loader_contract
 
 

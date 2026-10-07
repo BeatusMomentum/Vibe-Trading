@@ -19,7 +19,6 @@ import ccxt
 
 import backtest.loaders.ccxt_loader as cl
 from backtest.loaders.base import DEFAULT_MAX_RETRIES
-from backtest.loaders.base import DEFAULT_MAX_RETRIES
 from tests.loader_contract import assert_loader_contract
 from backtest.loaders.ccxt_loader import DataLoader
 

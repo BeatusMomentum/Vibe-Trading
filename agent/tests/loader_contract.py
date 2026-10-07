@@ -54,6 +54,8 @@ def loader_contract_errors(frame: object, *, context: str = "") -> list[str]:
     import numpy as np
 
     def bad(reason: str) -> list[str]:
+        # The vocabulary is pinned so a typo'd reason can never slip through.
+        assert reason in _CONTRACT_REASONS, f"unknown contract reason: {reason}"
         return [f"{context}: {reason}" if context else reason]
 
     if not isinstance(frame, pd.DataFrame) or frame.empty:

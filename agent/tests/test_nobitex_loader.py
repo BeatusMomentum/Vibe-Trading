@@ -14,7 +14,6 @@ import pytest
 import requests
 
 from backtest.loaders import nobitex
-from backtest.loaders import nobitex
 from tests.loader_contract import assert_loader_contract
 
 

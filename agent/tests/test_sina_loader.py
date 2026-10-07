@@ -20,13 +20,6 @@ from backtest.loaders.sina_loader import (
     _strip_jsonp,
     _to_sina_symbol,
 )
-from backtest.loaders.sina_loader import (
-    DataLoader,
-    _bars_to_frame,
-    _is_us_equity,
-    _strip_jsonp,
-    _to_sina_symbol,
-)
 from tests.loader_contract import assert_loader_contract
 
 

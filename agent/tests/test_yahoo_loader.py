@@ -19,14 +19,6 @@ from backtest.loaders.yahoo_loader import (
     _rows_to_frame,
     _to_yahoo_interval,
 )
-from backtest.loaders.yahoo_loader import (
-    DataLoader,
-    _epoch_seconds,
-    _is_intraday_interval,
-    _is_supported,
-    _rows_to_frame,
-    _to_yahoo_interval,
-)
 from tests.loader_contract import assert_loader_contract
 
 

@@ -11,7 +11,6 @@ import pandas as pd
 import pytest
 
 from backtest.loaders import gildata_loader as gl
-from backtest.loaders import gildata_loader as gl
 from tests.loader_contract import assert_loader_contract
 from backtest.loaders.gildata_loader import (
     DataLoader,

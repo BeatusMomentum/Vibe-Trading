@@ -9,7 +9,6 @@ import pytest
 
 import backtest.loaders.mootdx_loader as ml
 from backtest.loaders.mootdx_loader import DataLoader, _is_a_share, _is_bj
-from backtest.loaders.mootdx_loader import DataLoader, _is_a_share, _is_bj
 from tests.loader_contract import assert_loader_contract
 
 

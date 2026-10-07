@@ -15,7 +15,6 @@ import pandas as pd
 import pytest
 
 from backtest.loaders import eastmoney_client
-from backtest.loaders import eastmoney_client
 from tests.loader_contract import assert_loader_contract
 from backtest.loaders.eastmoney_loader import DataLoader, _to_compact_date
 

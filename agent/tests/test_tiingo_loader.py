@@ -18,12 +18,6 @@ from backtest.loaders.tiingo_loader import (
     _rows_to_frame,
     _to_tiingo_symbol,
 )
-from backtest.loaders.tiingo_loader import (
-    DataLoader,
-    _resolve_key,
-    _rows_to_frame,
-    _to_tiingo_symbol,
-)
 from tests.loader_contract import assert_loader_contract
 
 

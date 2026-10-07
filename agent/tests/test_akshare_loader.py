@@ -23,14 +23,6 @@ from backtest.loaders.akshare_loader import (
     _is_hk,
     _is_us,
 )
-from backtest.loaders.akshare_loader import (
-    DataLoader,
-    _is_a_share,
-    _is_etf_listed,
-    _is_forex,
-    _is_hk,
-    _is_us,
-)
 from tests.loader_contract import assert_loader_contract
 
 

@@ -10,7 +10,6 @@ import pandas as pd
 import pytest
 
 from backtest.loaders import fmp_loader as fl
-from backtest.loaders import fmp_loader as fl
 from tests.loader_contract import assert_loader_contract
 from backtest.loaders.fmp_loader import DataLoader, _fmp_symbol, _parse_historical
 

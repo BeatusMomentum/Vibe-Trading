@@ -18,7 +18,6 @@ import pandas as pd
 import pytest
 
 from backtest.loaders import tickerall_loader as tl
-from backtest.loaders import tickerall_loader as tl
 from tests.loader_contract import assert_loader_contract
 from backtest.loaders.tickerall_loader import (
     DataLoader,

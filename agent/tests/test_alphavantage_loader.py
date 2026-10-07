@@ -10,7 +10,6 @@ import pandas as pd
 import pytest
 
 from backtest.loaders import alphavantage_loader as av
-from backtest.loaders import alphavantage_loader as av
 from tests.loader_contract import assert_loader_contract
 
 
