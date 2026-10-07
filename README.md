@@ -370,6 +370,8 @@ It is designed for research, simulation, and backtesting — and, when you choos
 | **Bench a pre-built alpha zoo** | One-line IC + alive/reversed/dead categorisation across 462 alphas (Qlib 158 + Kakushadze 101 + GTJA 191 + academic + PIT-safe fundamental) on your universe. |
 | **Spot correlation regimes** | An edge-density + hysteresis timeline on the `/correlation` surface showing when markets fuse into one bloc — descriptive risk context, not a signal. |
 
+Daily correlation and regime requests align each source by its local calendar date, including mixed timezone-aware and timezone-naive histories.
+
 ---
 
 ## ⚡ Quick Example

@@ -164,7 +164,7 @@ def _rolling_correlation_matrix(
         # Normalize to date-only (midnight) so that cross-market assets
         # (e.g. crypto via OKX/CCXT at UTC midnight vs US equity via
         # yfinance at EDT midnight = 04:00 UTC) align correctly.
-        ts.index = ts.index.normalize()
+        ts.index = ts.index.tz_localize(None).normalize()
         # ``fill_method=None`` is explicit because under the project's
         # pandas>=2,<3 pin the ``pct_change`` default forward-fills missing
         # prices, silently manufacturing 0% returns on halted sessions.
