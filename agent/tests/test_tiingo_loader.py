@@ -18,6 +18,7 @@ from backtest.loaders.tiingo_loader import (
     _rows_to_frame,
     _to_tiingo_symbol,
 )
+from tests.loader_contract import assert_loader_contract
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +95,7 @@ def test_rows_to_frame_shape_and_dtypes() -> None:
     assert df is not None
     assert list(df.columns) == ["open", "high", "low", "close", "volume"]
     assert df.index.name == "trade_date"
+    assert_loader_contract(df, context="tiingo rows_to_frame")
     assert isinstance(df.index, pd.DatetimeIndex)
     assert df.index.tz is None
     assert all(str(df[col].dtype) == "float64" for col in df.columns)

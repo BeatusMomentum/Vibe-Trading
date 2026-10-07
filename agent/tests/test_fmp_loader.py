@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 
 from backtest.loaders import fmp_loader as fl
+from tests.loader_contract import assert_loader_contract
 from backtest.loaders.fmp_loader import DataLoader, _fmp_symbol, _parse_historical
 
 
@@ -77,6 +78,7 @@ class TestParseHistorical:
         assert list(df.index) == [pd.Timestamp("2024-01-03"), pd.Timestamp("2024-01-04")]
         assert list(df.columns) == ["open", "high", "low", "close", "volume"]
         assert df.index.name == "trade_date"
+        assert_loader_contract(df, context="canonical frame")
         assert df["close"].iloc[0] == 1.5
         for col in df.columns:
             assert df[col].dtype == float
