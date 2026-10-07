@@ -853,7 +853,7 @@ that is a bug, not a pattern.
 | `options` | Black-Scholes price + greeks, implied-volatility inversion |
 | `fixedincome` | Bond math, Nelson-Siegel / Svensson curve fitting |
 | `credit` | Altman Z-score, Merton / KMV distance-to-default |
-| `timeseries` | Stationarity, cointegration, GARCH, bootstrap |
+| `timeseries` | Stationarity, cointegration, GARCH, bootstrap; OU fits use adjacent observed lag pairs; missing observations never become artificial one-step transitions. |
 | `risk` · `var_backtest` | VaR / CVaR / EVT and their backtests |
 | `attribution` | Brinson-Fachler decomposition |
 | `performance` · `fundmath` | TWR / MWR / Modified Dietz; XIRR / MOIC / DPI / TVPI |
