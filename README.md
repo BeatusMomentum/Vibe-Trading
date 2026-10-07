@@ -854,6 +854,8 @@ that is a bug, not a pattern.
 | `fixedincome` | Bond math, Nelson-Siegel / Svensson curve fitting |
 | `credit` | Altman Z-score, Merton / KMV distance-to-default |
 | `timeseries` | Stationarity, cointegration, GARCH, bootstrap; OU fits use adjacent observed lag pairs; missing observations never become artificial one-step transitions. |
+| `credit` | Altman Z-score, Merton / KMV distance-to-default; CDS premium dates retain their configured frequency, with a final stub when maturity falls between coupons. |
+| `timeseries` | Stationarity, cointegration, GARCH, bootstrap |
 | `risk` · `var_backtest` | VaR / CVaR / EVT and their backtests |
 | `attribution` | Brinson-Fachler decomposition |
 | `performance` · `fundmath` | TWR / MWR / Modified Dietz; XIRR / MOIC / DPI / TVPI |
