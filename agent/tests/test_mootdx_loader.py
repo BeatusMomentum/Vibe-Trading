@@ -9,6 +9,8 @@ import pytest
 
 import backtest.loaders.mootdx_loader as ml
 from backtest.loaders.mootdx_loader import DataLoader, _is_a_share, _is_bj
+from backtest.loaders.mootdx_loader import DataLoader, _is_a_share, _is_bj
+from tests.loader_contract import assert_loader_contract
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +112,7 @@ def test_fetch_daily_uses_get_k_data(fake_client: _FakeStdQuotes) -> None:
     df = out["000001.SZ"]
     assert list(df.columns) == ["open", "high", "low", "close", "volume"]
     assert df.index.name == "trade_date"
+    assert_loader_contract(df, context="mootdx daily")
     assert len(df) == 3
     # Symbol stripping: SDK called with bare 6-digit code.
     assert any(call[0] == "get_k_data" and call[1] == "000001" for call in fake_client.calls)

@@ -19,6 +19,15 @@ from backtest.loaders.yahoo_loader import (
     _rows_to_frame,
     _to_yahoo_interval,
 )
+from backtest.loaders.yahoo_loader import (
+    DataLoader,
+    _epoch_seconds,
+    _is_intraday_interval,
+    _is_supported,
+    _rows_to_frame,
+    _to_yahoo_interval,
+)
+from tests.loader_contract import assert_loader_contract
 
 
 def _epoch(date_str: str) -> int:
@@ -200,6 +209,7 @@ class TestRowsToFrame:
         df = _rows_to_frame(rows, "2024-01-01", "2024-01-31")
         assert list(df.columns) == ["open", "high", "low", "close", "volume"]
         assert df.index.name == "trade_date"
+        assert_loader_contract(df, context="canonical frame")
         assert isinstance(df.index, pd.DatetimeIndex)
         assert df.index.tz is None
         assert all(str(df[col].dtype) == "float64" for col in df.columns)
