@@ -239,8 +239,8 @@
     "deliveryTargetPlaceholder_destination": "ID chat / grup / pengguna",
     "deliveryTargetPlaceholder_slack_destination": "#kanal, @pengguna, atau ID percakapan",
     "deliveryTargetKind_slack_destination": "Tujuan",
-    "deliveryProtectPdf": "Protect PDF with password",
-    "deliveryProtectPdfUnavailable": "No PDF password is configured. Set one in Settings > Channels > Email to enable protection."
+    "deliveryProtectPdf": "Lindungi PDF dengan kata sandi",
+    "deliveryProtectPdfUnavailable": "Kata sandi PDF belum diatur. Atur di Pengaturan > Kanal > Email untuk mengaktifkan perlindungan."
   },
   "reports": {
     "badge": "Laporan",
@@ -694,8 +694,8 @@
             "help": "authserv-id server penerima, misalnya mx.google.com. Penyedia email harus menghapus header Authentication-Results masuk palsu yang memakai ID ini. Wajib saat verifikasi SPF atau DKIM aktif; kosong menolak email masuk."
           },
           "pdf_password": {
-            "label": "PDF report password",
-            "help": "Optional password for scheduled PDF reports that explicitly request protection. Stored server-side and never included in scheduled jobs or returned to the browser."
+            "label": "Kata sandi laporan PDF",
+            "help": "Kata sandi opsional untuk laporan PDF terjadwal yang secara khusus meminta perlindungan. Disimpan di server dan tidak dimasukkan ke tugas terjadwal atau dikirim kembali ke browser."
           }
         },
         "websocket": {

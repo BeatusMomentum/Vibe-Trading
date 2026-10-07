@@ -366,6 +366,8 @@ def get_open_orders(
             items.append(item)
 
     open_orders, executions = [], []
+    if venue_errors:
+        raise KISAPIError("KIS order inquiry is incomplete: " + "; ".join(venue_errors))
     for item in items:
         row = _order_to_dict(item)
         remaining = _as_float(item.get("rmn_qty"))
@@ -382,8 +384,6 @@ def get_open_orders(
     }
     if include_executions:
         result["executions"] = executions
-    if venue_errors:
-        result["venue_errors"] = venue_errors
     return result
 
 
@@ -790,6 +790,8 @@ def _get_paginated(
     for _ in range(_MAX_CONTINUATION_PAGES):
         body, headers = _request(cfg, "GET", path, tr_id=tr_id, params=page_params, tr_cont=tr_cont)
         last_body = body
+        if not isinstance(body.get(rows_key), list):
+            raise KISAPIError(f"KIS {path} returned no valid {rows_key} list; inquiry is incomplete")
         rows.extend(_as_list(body.get(rows_key)))
         if str(headers.get("tr_cont", "")) not in ("F", "M"):
             break
@@ -834,8 +836,6 @@ def _request(
         except requests.RequestException as exc:
             raise KISAPIError(f"KIS request failed: {exc}") from exc
 
-        if response.status_code in (401, 403):
-            raise KISAPIError("KIS API authentication failed: check app_key/app_secret.")
         if response.status_code >= 400:
             message = _error_message(response)
             # KIS issues ONE token per app_key: a token minted for the other
@@ -846,20 +846,33 @@ def _request(
             if attempt == 0 and _is_expired_token(message):
                 _clear_token_cache(cfg)
                 continue
+            if response.status_code in (401, 403):
+                raise KISAPIError("KIS API authentication failed: check app_key/app_secret.")
             raise KISAPIError(f"KIS API returned HTTP {response.status_code}: {message}")
         try:
-            return response.json(), response.headers
+            payload = response.json()
         except ValueError as exc:
             raise KISAPIError("KIS API returned invalid JSON.") from exc
+        if not isinstance(payload, dict):
+            raise KISAPIError("KIS API returned a non-object response.")
+        if payload.get("rt_cd") is not None and str(payload["rt_cd"]) != "0":
+            message = _error_message(response)
+            if attempt == 0 and _is_expired_token(message):
+                _clear_token_cache(cfg)
+                continue
+            raise KISAPIError(f"KIS API rejected the request: {message}")
+        return payload, response.headers
     raise KISAPIError("KIS API rejected the token twice; re-issue failed.")
 
 
 def _is_expired_token(message: str) -> bool:
+    """Recognize the broker's explicit token-expiry rejection."""
     low = message.lower()
-    return "만료된 token" in message or "expired" in low and "token" in low
+    return "만료된 token" in low or "expired" in low and "token" in low
 
 
 def _clear_token_cache(cfg: KISConfig) -> None:
+    """Discard this environment's rejected token before one bounded retry."""
     try:
         _token_cache_path(cfg).unlink(missing_ok=True)
     except OSError:

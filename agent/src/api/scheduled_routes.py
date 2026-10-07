@@ -429,19 +429,9 @@ def _job_to_response(job: ScheduledResearchJob) -> "ScheduledRunResponse":
 
 def _email_pdf_password_configured() -> bool:
     """Read only whether the private Email PDF password is configured."""
-    host = _sys.modules.get("api_server") or _sys.modules.get("agent.api_server")
-    manager = getattr(host, "_channel_manager", None) if host else None
-    adapter = manager.get_channel("email") if manager is not None else None
-    if adapter is not None:
-        return bool(getattr(getattr(adapter, "config", None), "pdf_password", ""))
-    try:
-        from src.channels.config import load_channels_config
+    from src.scheduled_research.service import email_pdf_password_configured
 
-        section = load_channels_config().get("email", {})
-        return bool(section.get("pdf_password")) if isinstance(section, dict) else False
-    except Exception:
-        # A configuration read/parse failure must not authorize protected jobs.
-        return False
+    return email_pdf_password_configured()
 
 
 # ---------------------------------------------------------------------------

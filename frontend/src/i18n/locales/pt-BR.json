@@ -239,8 +239,8 @@
     "deliveryTargetPlaceholder_destination": "chat / grupo / ID de usuário",
     "deliveryTargetPlaceholder_slack_destination": "#canal, @usuário ou ID da conversa",
     "deliveryTargetKind_slack_destination": "Destino",
-    "deliveryProtectPdf": "Protect PDF with password",
-    "deliveryProtectPdfUnavailable": "No PDF password is configured. Set one in Settings > Channels > Email to enable protection."
+    "deliveryProtectPdf": "Proteger PDF com senha",
+    "deliveryProtectPdfUnavailable": "Nenhuma senha de PDF foi configurada. Defina uma em Configurações > Canais > E-mail para ativar a proteção."
   },
   "reports": {
     "badge": "Relatórios",
@@ -694,8 +694,8 @@
             "help": "authserv-id do servidor receptor, por exemplo mx.google.com. O provedor deve remover cabeçalhos Authentication-Results recebidos e forjados com esse ID. Obrigatório ao verificar SPF ou DKIM; vazio rejeita emails recebidos."
           },
           "pdf_password": {
-            "label": "PDF report password",
-            "help": "Optional password for scheduled PDF reports that explicitly request protection. Stored server-side and never included in scheduled jobs or returned to the browser."
+            "label": "Senha do relatório PDF",
+            "help": "Senha opcional para relatórios PDF agendados que solicitem proteção explicitamente. Armazenada no servidor e nunca incluída nas tarefas agendadas nem retornada ao navegador."
           }
         },
         "websocket": {

@@ -406,6 +406,10 @@ class ScheduledResearchJob:
         """
         if contains_pdf_password(self.config):
             raise ValueError("scheduled research config must not contain pdf_password")
+        if not isinstance(self.protect_pdf, bool):
+            raise TypeError("'protect_pdf' must be a boolean")
+        if self.protect_pdf and (self.delivery_channel != "email" or self.delivery_format != "pdf"):
+            raise ValueError("'protect_pdf' requires PDF email delivery")
         return {
             "id": self.id,
             "prompt": self.prompt,
@@ -514,8 +518,8 @@ class ScheduledResearchJob:
         protect_pdf = data.get("protect_pdf", False)
         if not isinstance(protect_pdf, bool):
             raise TypeError("'protect_pdf' must be a boolean")
-        if protect_pdf and delivery_format != "pdf":
-            raise ValueError("'protect_pdf' requires delivery_format='pdf'")
+        if protect_pdf and (delivery_channel != "email" or delivery_format != "pdf"):
+            raise ValueError("'protect_pdf' requires PDF email delivery")
         for name, value in (
             ("delivery_channel", delivery_channel),
             ("delivery_target", delivery_target),

@@ -209,6 +209,9 @@ class ChannelRuntime:
                 if delivery.get("channel") == "email":
                     label = {"html": "HTML", "pdf": "PDF"}.get(delivery.get("format"), "plain text")
                     email_format = f"Email format: {label}\n"
+                    if delivery.get("format") == "pdf":
+                        protection = "on" if delivery.get("protect_pdf") is True else "off"
+                        email_format += f"PDF password protection: {protection}\n"
                 reply_content = (
                     f"{reply_content}\n\n"
                     f"[Scheduled research confirmation · {action}]\n"

@@ -1085,6 +1085,9 @@ def _render_scheduled_proposal(console: Any, proposal: Dict[str, Any]) -> None:
         if delivery.get("channel") == "email":
             label = {"html": "HTML", "pdf": "PDF"}.get(delivery.get("format"), "纯文本")
             console.print(f"  邮件格式: {label}")
+            if delivery.get("format") == "pdf":
+                protection = "开启" if delivery.get("protect_pdf") is True else "关闭"
+                console.print(f"  PDF 密码保护: {protection}")
     console.print("确认执行？ [y/N]", style="bold", markup=False)
 
 

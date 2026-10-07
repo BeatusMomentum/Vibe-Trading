@@ -240,7 +240,7 @@
     "deliveryTargetPlaceholder_slack_destination": "#canal, @usuario o ID de conversación",
     "deliveryTargetKind_slack_destination": "Destino",
     "deliveryProtectPdf": "Proteger el PDF con contraseña",
-    "deliveryProtectPdfUnavailable": "No hay una contraseña PDF configurada. Configurala en Configuración > Canales > Email para habilitar la protección."
+    "deliveryProtectPdfUnavailable": "No hay una contraseña de PDF configurada. Defínela en Ajustes > Canales > Correo electrónico para activar la protección."
   },
   "reports": {
     "badge": "Informes",
@@ -694,8 +694,8 @@
             "help": "authserv-id del servidor receptor, p. ej. mx.google.com. Tu proveedor debe eliminar las cabeceras Authentication-Results falsificadas entrantes que usen este ID. Obligatorio al verificar SPF o DKIM; vacío rechaza el correo entrante."
           },
           "pdf_password": {
-            "label": "Contraseña de informes PDF",
-            "help": "Contraseña opcional para los informes PDF programados que soliciten protección. Se guarda en el servidor y nunca se incluye en los trabajos programados ni se devuelve al navegador."
+            "label": "Contraseña del informe PDF",
+            "help": "Contraseña opcional para informes PDF programados que soliciten protección expresamente. Se guarda en el servidor y nunca se incluye en las tareas programadas ni se devuelve al navegador."
           }
         },
         "websocket": {

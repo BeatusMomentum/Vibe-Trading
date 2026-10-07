@@ -234,8 +234,8 @@
     "deliveryTargetPlaceholder_destination": "会话 / 群 / 用户 id",
     "deliveryTargetPlaceholder_slack_destination": "#频道、@用户或会话 ID",
     "deliveryTargetKind_slack_destination": "目标",
-    "deliveryProtectPdf": "Protect PDF with password",
-    "deliveryProtectPdfUnavailable": "No PDF password is configured. Set one in Settings > Channels > Email to enable protection."
+    "deliveryProtectPdf": "为 PDF 设置密码保护",
+    "deliveryProtectPdfUnavailable": "尚未配置 PDF 密码。请在“设置 > 通讯渠道 > 电子邮件”中设置后启用保护。"
   },
   "reports": {
     "badge": "报告",
@@ -689,8 +689,8 @@
             "help": "收件服务器的 authserv-id，例如 mx.google.com。邮件服务商必须移除外部伪造且使用此 ID 的 Authentication-Results 邮件头。启用 SPF 或 DKIM 验证时必填；留空会拒收邮件。"
           },
           "pdf_password": {
-            "label": "PDF report password",
-            "help": "Optional password for scheduled PDF reports that explicitly request protection. Stored server-side and never included in scheduled jobs or returned to the browser."
+            "label": "PDF 报告密码",
+            "help": "可选密码，仅用于明确启用保护的定时 PDF 报告。保存在服务端，不写入定时任务，也不会回显到浏览器。"
           }
         },
         "websocket": {

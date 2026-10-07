@@ -47,6 +47,7 @@ def public_job(job: ScheduledResearchJob) -> dict[str, Any]:
             "target_ref": job.delivery_target_ref,
             "target_label": job.delivery_target_label,
             "format": job.delivery_format,
+            "protect_pdf": job.protect_pdf,
             "status": job.delivery.status.value,
             "attempts": job.delivery.attempts,
             "provider_message_id": job.delivery.provider_message_id,
@@ -73,6 +74,26 @@ def scheduler_status() -> dict[str, Any]:
     if executor is not None:
         running = bool(executor.is_running)
     return {"enabled": enabled, "running": running, "executable": enabled and running}
+
+
+def email_pdf_password_configured() -> bool:
+    """Return whether the active Email channel has a private PDF password.
+
+    Returns:
+        Password presence only, preferring the running adapter configuration.
+    """
+    host = sys.modules.get("api_server") or sys.modules.get("agent.api_server")
+    manager = getattr(host, "_channel_manager", None) if host else None
+    adapter = manager.get_channel("email") if manager is not None else None
+    if adapter is not None:
+        return bool(getattr(getattr(adapter, "config", None), "pdf_password", ""))
+    try:
+        from src.channels.config import load_channels_config
+
+        section = load_channels_config().get("email", {})
+        return bool(section.get("pdf_password")) if isinstance(section, dict) else False
+    except Exception:
+        return False
 
 
 def _parse_end_at(value: Any) -> int | None:
@@ -193,6 +214,8 @@ def build_job_from_draft(
         raise ValueError("delivery.format is supported only for email delivery")
     if protect_pdf and delivery_format != "pdf":
         raise ValueError("delivery.protect_pdf requires PDF email delivery")
+    if protect_pdf and not email_pdf_password_configured():
+        raise ValueError("PDF protection requested but no PDF password is configured")
 
     return ScheduledResearchJob(
         id=str(draft.get("id") or f"sr-{uuid.uuid4().hex[:12]}"),

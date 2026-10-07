@@ -234,8 +234,8 @@
     "deliveryTargetPlaceholder_destination": "معرّف محادثة / مجموعة / مستخدم",
     "deliveryTargetPlaceholder_slack_destination": "#قناة أو @مستخدم أو معرّف محادثة",
     "deliveryTargetKind_slack_destination": "الوجهة",
-    "deliveryProtectPdf": "Protect PDF with password",
-    "deliveryProtectPdfUnavailable": "No PDF password is configured. Set one in Settings > Channels > Email to enable protection."
+    "deliveryProtectPdf": "حماية ملف PDF بكلمة مرور",
+    "deliveryProtectPdfUnavailable": "لم تُضبط كلمة مرور PDF. اضبطها في الإعدادات > القنوات > البريد الإلكتروني لتفعيل الحماية."
   },
   "reports": {
     "badge": "التقارير",
@@ -689,8 +689,8 @@
             "help": "معرّف authserv-id لخادم الاستلام، مثل mx.google.com. يجب على مزود البريد إزالة ترويسات Authentication-Results الواردة المزوّرة التي تحمل هذا المعرّف. مطلوب عند تفعيل SPF أو DKIM؛ تركه فارغًا يرفض البريد الوارد."
           },
           "pdf_password": {
-            "label": "PDF report password",
-            "help": "Optional password for scheduled PDF reports that explicitly request protection. Stored server-side and never included in scheduled jobs or returned to the browser."
+            "label": "كلمة مرور تقرير PDF",
+            "help": "كلمة مرور اختيارية للتقارير المجدولة بصيغة PDF التي تطلب الحماية صراحةً. تُحفظ على الخادم ولا تُضمّن في المهام المجدولة أو تُعاد إلى المتصفح."
           }
         },
         "websocket": {

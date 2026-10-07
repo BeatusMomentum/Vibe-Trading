@@ -404,8 +404,8 @@ def test_kis_open_orders_dedupes_an_order_reported_by_two_venues(monkeypatch) ->
     assert len(result["executions"]) == 1
 
 
-def test_kis_open_orders_survives_one_venue_rejecting_the_filter(monkeypatch) -> None:
-    """A venue the broker does not accept must not hide the other venues' fills."""
+def test_kis_open_orders_reports_an_incomplete_venue_inquiry(monkeypatch) -> None:
+    """Known rows cannot authorize reporting an incomplete inquiry as complete."""
     cfg = kis.KISConfig(app_key="k", app_secret="s", account_no="12345678", profile="paper")
 
     def fake_paginated(_cfg, _path, *, tr_id, params):
@@ -414,6 +414,5 @@ def test_kis_open_orders_survives_one_venue_rejecting_the_filter(monkeypatch) ->
         return {"output1": [{"ord_dt": "20261006", "odno": "1", "pdno": "069500", "rmn_qty": "0"}]}
 
     monkeypatch.setattr(kis, "_get_paginated", fake_paginated)
-    result = kis.get_open_orders(cfg, include_executions=True)
-    assert [r["symbol"] for r in result["executions"]] == ["069500"]
-    assert len(result["venue_errors"]) == 2
+    with pytest.raises(kis.KISAPIError, match="incomplete.*SOR.*NXT"):
+        kis.get_open_orders(cfg, include_executions=True)

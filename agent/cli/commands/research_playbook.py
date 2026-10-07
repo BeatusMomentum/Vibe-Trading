@@ -167,6 +167,7 @@ def build_job_from_playbook(
     job_id: Optional[str] = None,
     delivery_target_ref: Optional[str] = None,
     delivery_format: Optional[str] = None,
+    protect_pdf: bool = False,
 ) -> Tuple[Optional[Any], Optional[str]]:
     """Build (but do not persist) a scheduled job from a template.
 
@@ -184,6 +185,7 @@ def build_job_from_playbook(
         job_id: Explicit job id, or ``None`` for a generated one.
         delivery_target_ref: Configured delivery destination reference.
         delivery_format: Email format (html/pdf), or None for plain text.
+        protect_pdf: Encrypt a PDF Email report with the configured channel password.
 
     Returns:
         A ``(job, error)`` pair; exactly one side is populated.
@@ -194,6 +196,7 @@ def build_job_from_playbook(
         "variables": variables or {},
         "delivery_target_ref": delivery_target_ref,
         "delivery_format": delivery_format,
+        "protect_pdf": protect_pdf,
     }
     if schedule is not None:
         kwargs["schedule"] = schedule
@@ -202,6 +205,11 @@ def build_job_from_playbook(
     if job_id:
         kwargs["job_id"] = job_id
     try:
+        if protect_pdf:
+            from src.scheduled_research.service import email_pdf_password_configured
+
+            if not email_pdf_password_configured():
+                raise ValueError("PDF protection requested but no PDF password is configured")
         return build_job(slug, **kwargs), None
     except (ValueError, OSError) as exc:
         # PlaybookError and PlaybookNotFoundError both subclass ValueError.
@@ -531,6 +539,7 @@ def add_subparser(subparsers: Any) -> argparse.ArgumentParser:
     p_create.add_argument("--id", dest="playbook_id", default=None, help="Explicit job id")
     p_create.add_argument("--delivery-target-ref", default=None, help="Configured delivery destination reference")
     p_create.add_argument("--delivery-format", choices=("html", "pdf"), default=None, help="Email format; omit for plain text")
+    p_create.add_argument("--protect-pdf", action="store_true", help="Encrypt the PDF using the private Email channel password")
     p_create.add_argument(
         "--dry-run",
         dest="playbook_dry_run",
@@ -608,6 +617,7 @@ def _cmd_create(args: argparse.Namespace) -> int:
         job_id=getattr(args, "playbook_id", None),
         delivery_target_ref=getattr(args, "delivery_target_ref", None),
         delivery_format=getattr(args, "delivery_format", None),
+        protect_pdf=getattr(args, "protect_pdf", False),
     )
     if job is None:
         _print(f"[bold red]{build_error}[/bold red]")

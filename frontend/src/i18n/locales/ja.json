@@ -234,8 +234,8 @@
     "deliveryTargetPlaceholder_destination": "チャット / グループ / ユーザー ID",
     "deliveryTargetPlaceholder_slack_destination": "#チャンネル、@ユーザー、会話 ID",
     "deliveryTargetKind_slack_destination": "送信先",
-    "deliveryProtectPdf": "Protect PDF with password",
-    "deliveryProtectPdfUnavailable": "No PDF password is configured. Set one in Settings > Channels > Email to enable protection."
+    "deliveryProtectPdf": "PDF をパスワードで保護",
+    "deliveryProtectPdfUnavailable": "PDF のパスワードが未設定です。「設定 > チャネル > メール」で設定すると保護を有効にできます。"
   },
   "reports": {
     "badge": "レポート",
@@ -689,8 +689,8 @@
             "help": "受信サーバーの authserv-id（例：mx.google.com）。メール提供者が、この ID を偽装した外部の Authentication-Results ヘッダーを削除する必要があります。SPF または DKIM 検証時は必須です。空欄では受信メールを拒否します。"
           },
           "pdf_password": {
-            "label": "PDF report password",
-            "help": "Optional password for scheduled PDF reports that explicitly request protection. Stored server-side and never included in scheduled jobs or returned to the browser."
+            "label": "PDF レポートのパスワード",
+            "help": "保護を明示的に指定した定期 PDF レポート用の任意のパスワードです。サーバー側で保存され、定期ジョブやブラウザーへの応答には含まれません。"
           }
         },
         "websocket": {
