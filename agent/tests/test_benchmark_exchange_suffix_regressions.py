@@ -3,7 +3,7 @@ import pytest
 from backtest.benchmark import resolve_benchmark
 
 
-@pytest.mark.parametrize("symbol", ["600000.SH", "000001.SZ", "830799.BJ"])
+@pytest.mark.parametrize("symbol", ["600000.SH", "600000.SS", "000001.SZ", "830799.BJ"])
 @pytest.mark.parametrize("source", ["local", "baostock", "yfinance"])
 def test_explicit_ashare_suffix_selects_csi300_benchmark(symbol, source):
     seen = []
