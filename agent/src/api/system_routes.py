@@ -5,6 +5,7 @@ Mounted by ``agent/api_server.py`` via ``register_system_routes(app, ...)``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import signal
@@ -300,7 +301,9 @@ def register_system_routes(
             raise HTTPException(status_code=400, detail="method must be 'pearson' or 'spearman'")
 
         try:
-            result = compute_correlation_matrix(codes=code_list, days=days, method=method)
+            result = await asyncio.to_thread(
+                compute_correlation_matrix, codes=code_list, days=days, method=method
+            )
             return result
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
@@ -344,7 +347,8 @@ def register_system_routes(
             raise HTTPException(status_code=400, detail="exit_threshold must be below enter_threshold")
 
         try:
-            return compute_regime_timeline(
+            return await asyncio.to_thread(
+                compute_regime_timeline,
                 codes=code_list,
                 days=days,
                 corr_window=corr_window,

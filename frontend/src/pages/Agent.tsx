@@ -258,6 +258,7 @@ export function Agent() {
   const [visibleRowCount, setVisibleRowCount] = useState(TIMELINE_WINDOW_SIZE);
   const visibleRowsSessionRef = useRef<string | null>(null);
   const [llmSettings, setLlmSettings] = useState<LLMSettings | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [runtimeIdentity, setRuntimeIdentity] = useState<RuntimeIdentity>({});
 
   const messages = useAgentStore(s => s.messages);
@@ -521,6 +522,7 @@ export function Agent() {
   }, []);
 
   const loadSessionMessages = useCallback(async (sid: string, gen: number) => {
+    setHistoryError(null);
     try {
       const msgs = await api.getSessionMessages(sid);
       if (genRef.current !== gen) return;
@@ -665,12 +667,13 @@ export function Agent() {
       act().cacheSession(sid, agentMsgs);
       setRuntimeIdentity(latestRuntimeIdentity ?? {});
       scheduleHistoryScroll();
-    } catch {
+    } catch (error) {
       if (genRef.current !== gen) return;
       setRuntimeIdentity({});
       act().setSessionLoading(false);
+      setHistoryError(error instanceof Error ? error.message : t("settings.unknownError"));
     }
-  }, [scheduleHistoryScroll]);
+  }, [scheduleHistoryScroll, t]);
 
   const refreshSessionMessages = useCallback(async (sid: string) => {
     const gen = genRef.current + 1;
@@ -1339,6 +1342,7 @@ export function Agent() {
       doDisconnect();
       setRuntimeIdentity({});
       setGroundingRevision(null);
+      setHistoryError(null);
       setLiveItems([]);
       liveRuntimeRef.current?.resetSession();
       if (curSid && curMsgs.length > 0) cacheSession(curSid, curMsgs);
@@ -1507,7 +1511,7 @@ export function Agent() {
       archiveActivity("failed");
       act().setStatus("error");
       const message = isAuthRequiredError(error) ? AUTH_REQUIRED_MESSAGE
-        : error instanceof ApiError && error.code === 'message_too_long' ? error.message : t('agent.failedToSend');
+        : error instanceof ApiError && ['message_too_long', 'network_error', 'request_timeout'].includes(error.code || '') ? error.message : t('agent.failedToSend');
       toast.error(message);
       act().addMessage({ id: "", type: "error", content: message, timestamp: Date.now() });
     }
@@ -1783,6 +1787,16 @@ export function Agent() {
         runtimeModel={visibleRuntimeIdentity.model}
         runtimeReasoningEffort={visibleRuntimeIdentity.reasoningEffort}
       />
+      {historyError && (
+        <div role="alert" className="flex flex-wrap items-center gap-2 border-b border-warning/30 bg-warning/10 px-4 py-2 text-xs">
+          <span>{t("layout.sessionsLoadFailed")} {historyError}</span>
+          <button type="button" onClick={() => {
+            if (!sessionId) return;
+            act().setSessionLoading(true);
+            void refreshSessionMessages(sessionId);
+          }} className="ms-auto rounded-md border px-2 py-1">{t("connection.retry")}</button>
+        </div>
+      )}
       <div
         ref={listRef}
         data-streaming={status === "streaming" ? "true" : undefined}
@@ -1807,7 +1821,7 @@ export function Agent() {
               ))}
             </div>
           )}
-          {!sessionLoading && messages.length === 0 && (
+          {!sessionLoading && !historyError && messages.length === 0 && (
             // my-auto (not justify-*) centers the hero vertically while staying
             // scroll-reachable once the example library expands past the viewport.
             <div className="msg-enter my-auto">

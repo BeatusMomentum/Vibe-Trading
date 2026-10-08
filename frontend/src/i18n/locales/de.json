@@ -7,16 +7,48 @@
     "noCorrelationData": "Wählen Sie mindestens zwei Symbole zum Vergleichen",
     "noEquityData": "Noch keine Kontowert-Kurve — führen Sie zuerst einen Backtest durch"
   },
+  "navigation": {
+    "menu": "Funktionen entdecken",
+    "close": "Funktionsmenü schließen",
+    "groups": {
+      "research": "Tägliche Recherche",
+      "analysis": "Spezialisierte Analyse",
+      "automation": "Automatisierung & Einrichtung"
+    },
+    "howTo": "So verwendest du {{feature}}",
+    "startResearch": "Mit dem Rechercheassistenten starten",
+    "descriptions": {
+      "agent": "Stelle eine Recherchefrage oder beschreibe eine Strategie in eigenen Worten.",
+      "reports": "Abgeschlossene Backtests ansehen und vergleichen.",
+      "portfolio": "Guthaben und Positionen verbundener Konten zusammen ansehen.",
+      "alphaZoo": "Aktienauswahlsignale erkunden und historische Ergebnisse bewerten oder vergleichen.",
+      "optionsLab": "Optionsstrategien erstellen, Gewinn und Risiko untersuchen und US-Optionsketten ansehen.",
+      "correlation": "Vergleichen, wie sich Vermögenswerte gemeinsam bewegen.",
+      "scheduled": "Eine Recherche nach Zeitplan wiederholen.",
+      "runtime": "Brokerverbindungen und den Betriebsstatus des Handels prüfen.",
+      "settings": "Modelle, Datenquellen und Brokerverbindungen konfigurieren."
+    },
+    "instructions": {
+      "reports": "Bitte den Assistenten zuerst um einen Strategie-Backtest und öffne hier die Ergebnisse. Im Chat erstellte PDFs und andere Dokumente lädst du in der ursprünglichen Unterhaltung herunter.",
+      "portfolio": "Füge eine Kontoquelle hinzu, aktiviere sie und aktualisiere die Positionen. Diese Seite zeigt Kontodaten schreibgeschützt an.",
+      "alphaZoo": "Lies die Faktordefinition und wähle Markt und Zeitraum, um Signale zu bewerten oder zu vergleichen. Prüfe Kandidaten mit einem Backtest.",
+      "optionsLab": "Wähle eine Vorlage oder füge Optionslegs hinzu und passe Preis, Laufzeit und Volatilität an; Ergebnisse werden automatisch aktualisiert. Das Symbol der echten Optionskette ist von der Simulation getrennt.",
+      "correlation": "Gib mindestens zwei Wertpapiercodes ein, wähle den Zeitraum und klicke auf Berechnen.",
+      "scheduled": "Gib einen Rechercheauftrag ein, wähle die Häufigkeit und speichere. Für die Ausführung muss der lokale Planer aktiviert sein; zur Zustellung ist ein eingerichteter Kanal nötig.",
+      "runtime": "Richte zuerst unter Einstellungen oder Portfolio eine Brokerverbindung ein. Verfügbare Handelsaktionen hängen von den Brokerfunktionen und deiner Autorisierung ab.",
+      "settings": "Richte zunächst ein Modell ein. Ergänze Datenquellen oder Brokerverbindungen nach Bedarf; für öffentliche Marktrecherche ist kein Brokerkonto nötig."
+    }
+  },
   "layout": {
     "home": "Startseite",
-    "agent": "Agent",
-    "runtime": "Runtime",
-    "scheduled": "Geplant",
-    "reports": "Berichte",
-    "alphaZoo": "Alpha Zoo",
+    "agent": "Rechercheassistent",
+    "runtime": "Handelsstatus",
+    "scheduled": "Geplante Recherche",
+    "reports": "Backtest-Berichte",
+    "alphaZoo": "Faktorrecherche",
     "settings": "Einstellungen",
-    "correlation": "Korrelationsmatrix",
-    "optionsLab": "Options-Labor",
+    "correlation": "Korrelation der Anlagen",
+    "optionsLab": "Optionsanalyse",
     "sessions": "Sitzungen",
     "newChat": "Neuer Chat",
     "noSessions": "Noch keine Chats — drücken Sie +, um einen zu starten",
@@ -33,7 +65,8 @@
     "sidebar": "Vibe-Trading-Seitenleiste",
     "mainNavigation": "Hauptnavigation",
     "about": "Über",
-    "portfolio": "Portfolio"
+    "portfolio": "Kontopositionen",
+    "sessionsLoadFailed": "Gespräche können nicht geladen werden."
   },
   "runtime": {
     "monitorBadge": "Runtime-Monitor",
@@ -260,7 +293,7 @@
     "unavailable": "Berichtsbibliothek nicht verfügbar",
     "loadError": "Berichte konnten nicht geladen werden.",
     "emptyTitle": "Noch keine Berichte",
-    "emptyBody": "Erstellen Sie einen Backtest im Agent-Bereich, dann kehren Sie hierher zurück, um ihn zu prüfen.",
+    "emptyBody": "Bitte den Rechercheassistenten um einen Backtest und sieh dir hier die Ergebnisse an.",
     "noMatchesTitle": "Keine passenden Berichte",
     "noMatchesBody": "Passen Sie Ihre Suchanfrage, den Statusfilter oder den Datumsbereich an.",
     "noPrompt": "Kein Prompt erfasst.",
@@ -274,9 +307,22 @@
   "connection": {
     "reconnecting": "Verbindung wird wiederhergestellt …",
     "disconnected": "Verbindung verloren. Laden Sie die Seite neu, um wieder zu verbinden.",
-    "reload": "Neu laden"
+    "reload": "Neu laden",
+    "retry": "Verbindung erneut versuchen",
+    "requestFailed": "Der API-Server ist nicht erreichbar. Prüfe, ob er läuft und eine Netzwerkverbindung besteht.",
+    "requestTimeout": "Die Anfrage hat das Zeitlimit überschritten. Prüfe die Serververbindung und versuche es erneut.",
+    "requestTimeoutMutation": "Die Anfrage hat das Zeitlimit überschritten. Der Server verarbeitet sie möglicherweise noch; prüfe den aktuellen Status, bevor du es erneut versuchst."
   },
   "welcome": {
+    "tasks": {
+      "research": "Eine Aktie recherchieren",
+      "backtest": "Eine Strategie prüfen",
+      "portfolio": "Meine Positionen prüfen",
+      "hint": "Beispiele füllen das Nachrichtenfeld. Passe Symbol oder Strategie vor dem Senden an.",
+      "researchPrompt": "Recherchiere AAPL mit aktuell verfügbaren Daten: Fasse Geschäft, jüngste Finanzentwicklung und wesentliche Risiken zusammen. Nenne Quellen und Daten und kennzeichne fehlende Informationen.",
+      "backtestPrompt": "Teste eine 20/60-Tage-Durchschnittsstrategie für AAPL im vergangenen Jahr historisch. Vergleiche Renditen und Drawdowns mit Kaufen und Halten und berücksichtige Handelskosten. Nur Recherche.",
+      "portfolioPrompt": "Fasse Positionen, Konzentration und Portfoliorisiken meiner verbundenen Konten zusammen. Erkläre zuerst die Einrichtung, falls kein Konto verbunden ist. Keine Orders aufgeben oder ändern."
+    },
     "categories": {
       "multiMarketBacktest": "A-Share Backtest",
       "researchAnalysis": "Recherche & Analyse",

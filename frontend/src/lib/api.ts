@@ -7,11 +7,50 @@ import type {
 } from "@/lib/options";
 
 const BASE = "";
+const configuredTimeout = Number(import.meta.env.VITE_API_TIMEOUT_MS);
+const REQUEST_TIMEOUT_MS = Number.isFinite(configuredTimeout) && configuredTimeout > 0
+  ? configuredTimeout : 120_000;
+const METADATA_TIMEOUT_MS = Math.min(REQUEST_TIMEOUT_MS, 15_000);
+
+/** Bound both the connection and body read; never automatically replay writes. */
+async function performRequest<T>(
+  path: string,
+  options: RequestInit,
+  read: (response: Response) => Promise<T>,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<T> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const abort = () => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted) abort();
+  else options.signal?.addEventListener("abort", abort, { once: true });
+  try {
+    const response = await fetch(`${BASE}${path}`, { ...options, signal: controller.signal });
+    if (!response.ok) throw await errorFromResponse(response);
+    return await read(response);
+  } catch (error) {
+    if (timedOut) {
+      const mutation = options.method && !["GET", "HEAD"].includes(options.method.toUpperCase());
+      throw new ApiError(i18n.t(mutation ? "connection.requestTimeoutMutation" : "connection.requestTimeout"), 0, "request_timeout");
+    }
+    if (options.signal?.aborted || error instanceof ApiError) throw error;
+    if (error instanceof TypeError) {
+      throw new ApiError(i18n.t("connection.requestFailed"), 0, "network_error");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    options.signal?.removeEventListener("abort", abort);
+  }
+}
 
 export async function downloadGeneratedReport(reportId: string, filename: string): Promise<void> {
-  const response = await fetch(`${BASE}/api/reports/${encodeURIComponent(reportId)}`, { headers: authHeaders() });
-  if (!response.ok) throw new ApiError(response.statusText, response.status);
-  const url = URL.createObjectURL(await response.blob());
+  const blob = await performRequest(`/api/reports/${encodeURIComponent(reportId)}`, { headers: authHeaders() }, (response) => response.blob());
+  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
@@ -325,14 +364,16 @@ async function errorFromResponse(res: Response): Promise<ApiError> {
         detail = i18n.t("agent.messageTooLong", { limit: structured.max_length.toLocaleString() });
       }
     }
-  } catch { /* ignore */ }
+  } catch {
+    if (res.status >= 500) detail = i18n.t("connection.requestFailed");
+  }
   if (res.status === 401 || res.status === 403) {
     detail = getAuthRequiredMessage();
   }
   return new ApiError(detail, res.status, code);
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+async function request<T>(path: string, options?: RequestInit, timeoutMs?: number): Promise<T> {
   const { headers, ...rest } = options ?? {};
   const mergedHeaders: Record<string, string> = { "Content-Type": "application/json", ...authHeaders() };
   if (headers) {
@@ -340,26 +381,24 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       mergedHeaders[key] = value;
     });
   }
-  const res = await fetch(`${BASE}${path}`, {
+  return performRequest(path, {
     ...rest,
     headers: mergedHeaders,
-  });
-  if (!res.ok) {
-    throw await errorFromResponse(res);
-  }
-  const text = await res.text();
-  if (!text) return {} as T;
+  }, async (res) => {
+    const text = await res.text();
+    if (!text) return {} as T;
 
-  const contentType = res.headers.get("content-type") || "";
-  if (!contentType.includes("application/json")) {
-    const preview = text.slice(0, 80).replace(/\s+/g, " ");
-    throw new ApiError(
-      `Expected JSON from ${path}, got ${contentType || "unknown content type"}: ${preview}`,
-      res.status,
-    );
-  }
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      const preview = text.slice(0, 80).replace(/\s+/g, " ");
+      throw new ApiError(
+        `Expected JSON from ${path}, got ${contentType || "unknown content type"}: ${preview}`,
+        res.status,
+      );
+    }
 
-  return JSON.parse(text) as T;
+    return JSON.parse(text) as T;
+  }, timeoutMs);
 }
 
 export interface UploadResult {
@@ -371,11 +410,7 @@ export interface UploadResult {
 async function uploadFile(file: File): Promise<UploadResult> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${BASE}/upload`, { method: "POST", headers: authHeaders(), body: form });
-  if (!res.ok) {
-    throw await errorFromResponse(res);
-  }
-  return res.json();
+  return performRequest("/upload", { method: "POST", headers: authHeaders(), body: form }, (res) => res.json());
 }
 
 function appendQueryParam(url: string, key: string, value: string): string {
@@ -439,9 +474,7 @@ export const api = {
   getPortfolioHistory: (limit = 180) =>
     request<{ status: string; history: PortfolioHistoryPoint[] }>(`/api/portfolio/history?limit=${encodeURIComponent(String(limit))}`),
   downloadPortfolioCsv: async () => {
-    const response = await fetch(`${BASE}/api/portfolio/export.csv`, { headers: authHeaders() });
-    if (!response.ok) throw await errorFromResponse(response);
-    return response.blob();
+    return performRequest("/api/portfolio/export.csv", { headers: authHeaders() }, (response) => response.blob());
   },
   listRuns: (limit?: number) => request<RunListItem[]>(`/runs${limit ? `?limit=${encodeURIComponent(String(limit))}` : ""}`),
   getRun: (id: string, params: RunDetailParams = {}) => {
@@ -455,7 +488,7 @@ export const api = {
   getRunFactor: (id: string) => request<FactorReportPayload>(`/runs/${id}/factor`),
   getRunAttribution: (id: string) => request<AttributionResponse>(`/runs/${encodeURIComponent(id)}/attribution`),
   getRunPine: (id: string) => request<PineScriptResult>(`/runs/${id}/pine`),
-  listSessions: () => request<SessionItem[]>("/sessions"),
+  listSessions: () => request<SessionItem[]>("/sessions", undefined, METADATA_TIMEOUT_MS),
   createSession: (title?: string) => request<SessionItem>("/sessions", { method: "POST", body: JSON.stringify({ title: title || "" }) }),
   deleteSession: (sid: string) => request<{ status: string }>(`/sessions/${sid}`, { method: "DELETE" }),
   renameSession: (sid: string, title: string) => request<{ status: string }>(`/sessions/${sid}`, { method: "PATCH", body: JSON.stringify({ title }) }),

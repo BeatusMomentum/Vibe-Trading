@@ -226,7 +226,7 @@ export function OptionsLab() {
       </section>
 
       {/* Live US options chain */}
-      <OptionsChainTable referenceSpot={params.entry_spot} />
+      <OptionsChainTable />
 
       <p className="pb-2 text-xs text-muted-foreground">{t("options.disclaimer")}</p>
     </div>

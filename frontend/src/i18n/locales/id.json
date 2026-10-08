@@ -7,17 +7,49 @@
     "noCorrelationData": "Pilih setidaknya dua simbol untuk dibandingkan",
     "noEquityData": "Belum ada kurva nilai akun — jalankan backtest terlebih dahulu"
   },
+  "navigation": {
+    "menu": "Jelajahi fitur",
+    "close": "Tutup menu fitur",
+    "groups": {
+      "research": "Riset sehari-hari",
+      "analysis": "Analisis khusus",
+      "automation": "Otomatisasi & pengaturan"
+    },
+    "howTo": "Cara menggunakan {{feature}}",
+    "startResearch": "Mulai dengan asisten riset",
+    "descriptions": {
+      "agent": "Ajukan pertanyaan riset atau jelaskan strategi dengan kata-kata sendiri.",
+      "reports": "Lihat dan bandingkan backtest yang telah selesai.",
+      "portfolio": "Lihat saldo dan posisi dari akun yang terhubung.",
+      "alphaZoo": "Jelajahi sinyal pemilihan saham dan evaluasi atau bandingkan kinerja historisnya.",
+      "optionsLab": "Susun strategi opsi, pelajari laba dan risiko, serta lihat rantai opsi AS.",
+      "correlation": "Bandingkan hubungan pergerakan aset.",
+      "scheduled": "Ulangi tugas riset sesuai jadwal.",
+      "runtime": "Periksa koneksi broker dan status pelaksanaan perdagangan.",
+      "settings": "Atur model, sumber data, dan koneksi broker."
+    },
+    "instructions": {
+      "reports": "Minta asisten melakukan backtest strategi terlebih dahulu, lalu buka hasilnya di sini. Unduh PDF dan dokumen yang dibuat di chat dari percakapan asal.",
+      "portfolio": "Tambahkan dan aktifkan sumber akun, lalu perbarui posisi. Halaman ini merangkum data akun dalam mode baca saja.",
+      "alphaZoo": "Baca definisi faktor, lalu pilih pasar dan rentang tanggal untuk mengevaluasi atau membandingkan sinyal. Validasi kandidat dengan backtest.",
+      "optionsLab": "Pilih preset atau tambahkan kaki opsi, lalu sesuaikan harga, jatuh tempo, dan volatilitas; hasil diperbarui otomatis. Simbol rantai opsi aktual terpisah dari masukan simulasi.",
+      "correlation": "Masukkan setidaknya dua simbol aset, pilih periode, lalu klik Hitung.",
+      "scheduled": "Isi instruksi riset, pilih frekuensi, dan simpan. Penjadwal lokal harus diaktifkan agar tugas berjalan; pengiriman juga memerlukan kanal yang telah diatur.",
+      "runtime": "Atur koneksi broker di Pengaturan atau Portofolio terlebih dahulu. Tindakan perdagangan yang tersedia bergantung pada kemampuan broker dan otorisasi Anda.",
+      "settings": "Atur model untuk memulai. Tambahkan data atau koneksi broker sesuai kebutuhan; riset data pasar publik tidak memerlukan akun broker."
+    }
+  },
   "layout": {
     "home": "Beranda",
-    "agent": "Agent",
-    "runtime": "Runtime",
-    "scheduled": "Terjadwal",
-    "reports": "Laporan",
-    "portfolio": "Portofolio",
-    "alphaZoo": "Alpha Zoo",
+    "agent": "Asisten riset",
+    "runtime": "Status perdagangan",
+    "scheduled": "Riset terjadwal",
+    "reports": "Laporan backtest",
+    "portfolio": "Posisi akun",
+    "alphaZoo": "Riset faktor",
     "settings": "Pengaturan",
-    "correlation": "Matriks Korelasi",
-    "optionsLab": "Lab Opsi",
+    "correlation": "Korelasi aset",
+    "optionsLab": "Analisis opsi",
     "sessions": "Sesi",
     "newChat": "Chat Baru",
     "noSessions": "Belum ada chat — tekan + untuk memulai",
@@ -33,7 +65,8 @@
     "skipToMain": "Lewati ke konten utama",
     "sidebar": "Sidebar Vibe-Trading",
     "mainNavigation": "Navigasi utama",
-    "about": "Tentang"
+    "about": "Tentang",
+    "sessionsLoadFailed": "Percakapan tidak dapat dimuat."
   },
   "runtime": {
     "monitorBadge": "Monitor Runtime",
@@ -260,7 +293,7 @@
     "unavailable": "Pustaka laporan tidak tersedia",
     "loadError": "Tidak dapat memuat laporan.",
     "emptyTitle": "Belum ada laporan",
-    "emptyBody": "Buat backtest dari Agent, lalu kembali ke sini untuk meninjaunya.",
+    "emptyBody": "Minta asisten riset melakukan backtest, lalu kembali ke sini untuk melihat hasilnya.",
     "noMatchesTitle": "Tidak ada laporan yang cocok",
     "noMatchesBody": "Sesuaikan pencarian, filter status, atau rentang tanggal.",
     "noPrompt": "Tidak ada prompt yang tercatat.",
@@ -274,9 +307,22 @@
   "connection": {
     "reconnecting": "Menghubungkan kembali…",
     "disconnected": "Koneksi terputus. Muat ulang halaman untuk menghubungkan kembali.",
-    "reload": "Muat Ulang"
+    "reload": "Muat Ulang",
+    "retry": "Coba sambungkan lagi",
+    "requestFailed": "Tidak dapat menghubungi server API. Pastikan server berjalan dan koneksi jaringan tersedia.",
+    "requestTimeout": "Waktu permintaan habis. Periksa koneksi server, lalu coba lagi.",
+    "requestTimeoutMutation": "Waktu permintaan habis. Server mungkin masih memprosesnya; periksa status saat ini sebelum mencoba lagi."
   },
   "welcome": {
+    "tasks": {
+      "research": "Riset sebuah saham",
+      "backtest": "Uji sebuah strategi",
+      "portfolio": "Tinjau posisi saya",
+      "hint": "Contoh mengisi kotak pesan. Ubah simbol atau strategi sebelum mengirim.",
+      "researchPrompt": "Riset AAPL dengan data terkini yang tersedia: rangkum bisnis, kinerja keuangan terbaru, dan risiko utama. Cantumkan sumber, tanggal, serta informasi yang belum tersedia.",
+      "backtestPrompt": "Backtest strategi rata-rata bergerak 20/60 hari pada AAPL selama setahun terakhir. Bandingkan imbal hasil dan penurunan dengan beli dan tahan, serta perhitungkan biaya transaksi. Hanya untuk riset.",
+      "portfolioPrompt": "Rangkum akun dan posisi saya yang terhubung, konsentrasi, serta risiko portofolio. Jika belum ada akun terhubung, jelaskan cara menyiapkannya terlebih dahulu. Jangan mengirim atau mengubah order."
+    },
     "categories": {
       "multiMarketBacktest": "Backtest A-Share",
       "researchAnalysis": "Riset & Analisis",

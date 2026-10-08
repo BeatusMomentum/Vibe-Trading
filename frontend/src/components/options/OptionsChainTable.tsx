@@ -6,7 +6,6 @@ import { api } from "@/lib/api";
 import {
   bidAskSpreadPct,
   expirationLabel,
-  nearestStrikeIndex,
   type OptionsChainData,
   type OptionsContractRow,
 } from "@/lib/options";
@@ -130,12 +129,7 @@ function SkeletonRows() {
   );
 }
 
-interface Props {
-  /** Entry spot from the builder — anchors the ATM highlight when available. */
-  referenceSpot?: number;
-}
-
-export function OptionsChainTable({ referenceSpot }: Props) {
+export function OptionsChainTable() {
   const { t } = useTranslation();
   const [tickerInput, setTickerInput] = useState(DEFAULT_TICKER);
   const [data, setData] = useState<OptionsChainData | null>(null);
@@ -176,16 +170,8 @@ export function OptionsChainTable({ referenceSpot }: Props) {
     void load(ticker);
   };
 
-  const atmStrike = useMemo(() => {
-    if (!data) return null;
-    const rows = data.calls.length > 0 ? data.calls : data.puts;
-    if (rows.length === 0) return null;
-    const anchor =
-      referenceSpot !== undefined && Number.isFinite(referenceSpot) && referenceSpot > 0
-        ? referenceSpot
-        : [...rows].sort((a, b) => a.strike - b.strike)[Math.floor(rows.length / 2)].strike;
-    return rows[nearestStrikeIndex(rows, anchor)].strike;
-  }, [data, referenceSpot]);
+  const atmStrike = data?.atm_strike != null && Number.isFinite(data.atm_strike)
+    && data.atm_strike > 0 ? data.atm_strike : null;
 
   return (
     <section className="rounded-xl border border-border/60 bg-card p-4 shadow-sm">

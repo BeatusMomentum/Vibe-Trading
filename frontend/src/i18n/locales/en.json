@@ -7,17 +7,49 @@
     "noCorrelationData": "Pick at least two symbols to compare",
     "noEquityData": "No account-value curve yet — run a backtest first"
   },
+  "navigation": {
+    "menu": "Browse features",
+    "close": "Close feature menu",
+    "groups": {
+      "research": "Everyday research",
+      "analysis": "Specialized analysis",
+      "automation": "Automation & setup"
+    },
+    "howTo": "How to use {{feature}}",
+    "startResearch": "Start with the research assistant",
+    "descriptions": {
+      "agent": "Ask a research question or describe a strategy in your own words.",
+      "reports": "Review and compare completed backtests.",
+      "portfolio": "See balances and holdings across connected accounts.",
+      "alphaZoo": "Explore stock-selection signals and evaluate their historical performance.",
+      "optionsLab": "Build option strategies, explore payoff and risk, and browse US option chains.",
+      "correlation": "Compare how assets move together.",
+      "scheduled": "Repeat a research task on a schedule.",
+      "runtime": "Check broker connections and trading runtime status.",
+      "settings": "Configure models, data sources, and broker connections."
+    },
+    "instructions": {
+      "reports": "Ask the research assistant to backtest a strategy first, then open its results here. Download PDFs and other chat-generated documents from the original conversation.",
+      "portfolio": "Add and enable an account source, then refresh its holdings. This page provides a read-only account overview.",
+      "alphaZoo": "Read a factor definition, then choose a market and date range to evaluate or compare signals. Validate candidates with a backtest.",
+      "optionsLab": "Choose a preset or add option legs, then adjust price, expiry, and volatility; results update automatically. The stock symbol for the live chain is separate from the simulation inputs.",
+      "correlation": "Enter at least two asset symbols, choose a lookback window, then select Compute.",
+      "scheduled": "Enter a research instruction, choose its cadence, and save. The local scheduler must be enabled for jobs to run; delivery also needs a configured channel.",
+      "runtime": "Configure a broker connection in Settings or Portfolio first. Available trading actions depend on that broker's capabilities and your authorization.",
+      "settings": "Configure a model to start. Add data sources or broker connections as your task needs them; public-market research does not require a broker account."
+    }
+  },
   "layout": {
     "home": "Home",
-    "agent": "Agent",
-    "runtime": "Runtime",
-    "scheduled": "Scheduled",
-    "reports": "Reports",
-    "portfolio": "Portfolio",
-    "alphaZoo": "Alpha Zoo",
+    "agent": "Research assistant",
+    "runtime": "Trading status",
+    "scheduled": "Scheduled research",
+    "reports": "Backtest reports",
+    "portfolio": "Account holdings",
+    "alphaZoo": "Factor research",
     "settings": "Settings",
-    "correlation": "Correlation Matrix",
-    "optionsLab": "Options Lab",
+    "correlation": "Asset correlation",
+    "optionsLab": "Options analysis",
     "sessions": "Sessions",
     "newChat": "New Chat",
     "noSessions": "No chats yet — press + to start one",
@@ -33,7 +65,8 @@
     "skipToMain": "Skip to main content",
     "sidebar": "Vibe-Trading sidebar",
     "mainNavigation": "Main navigation",
-    "about": "About"
+    "about": "About",
+    "sessionsLoadFailed": "Cannot load conversations."
   },
   "runtime": {
     "monitorBadge": "Runtime Monitor",
@@ -260,7 +293,7 @@
     "unavailable": "Report library unavailable",
     "loadError": "Unable to load reports.",
     "emptyTitle": "No reports yet",
-    "emptyBody": "Create a backtest from Agent, then return here to review it.",
+    "emptyBody": "Ask the research assistant to run a backtest, then return here to review the results.",
     "noMatchesTitle": "No matching reports",
     "noMatchesBody": "Adjust your search query, status filter, or date range.",
     "noPrompt": "No prompt recorded.",
@@ -274,9 +307,22 @@
   "connection": {
     "reconnecting": "Reconnecting…",
     "disconnected": "Connection lost. Reload the page to reconnect.",
-    "reload": "Reload"
+    "reload": "Reload",
+    "retry": "Retry connection",
+    "requestFailed": "Cannot reach the API server. Check that it is running and that your network connection is available.",
+    "requestTimeout": "The request timed out. Check the server connection, then try again.",
+    "requestTimeoutMutation": "The request timed out. The server may still be processing it; check the current state before trying again."
   },
   "welcome": {
+    "tasks": {
+      "research": "Research a stock",
+      "backtest": "Test a strategy",
+      "portfolio": "Review my holdings",
+      "hint": "Examples fill the message box. Edit the symbol or strategy before sending.",
+      "researchPrompt": "Research AAPL: summarize its business, recent financial performance, and key risks using current data. State the sources and dates, and flag missing information.",
+      "backtestPrompt": "Backtest a 20/60-day moving-average strategy on AAPL over the past year. Compare returns and drawdowns with buy-and-hold, and include trading costs. Keep this research-only.",
+      "portfolioPrompt": "Summarize my connected accounts and holdings, including concentration and portfolio risks. If no account is connected, explain how to set one up first. Do not place or modify orders."
+    },
     "categories": {
       "multiMarketBacktest": "A-Share Backtest",
       "researchAnalysis": "Research & Analysis",

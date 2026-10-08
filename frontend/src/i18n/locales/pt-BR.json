@@ -7,17 +7,49 @@
     "noCorrelationData": "Escolha pelo menos dois símbolos para comparar",
     "noEquityData": "Ainda não há curva de valor da conta – execute primeiro um backtest"
   },
+  "navigation": {
+    "menu": "Explorar recursos",
+    "close": "Fechar menu de recursos",
+    "groups": {
+      "research": "Pesquisa cotidiana",
+      "analysis": "Análise especializada",
+      "automation": "Automação e configuração"
+    },
+    "howTo": "Como usar {{feature}}",
+    "startResearch": "Comece com o assistente de pesquisa",
+    "descriptions": {
+      "agent": "Faça uma pergunta de pesquisa ou descreva uma estratégia com suas palavras.",
+      "reports": "Veja e compare backtests concluídos.",
+      "portfolio": "Veja saldos e posições das contas conectadas.",
+      "alphaZoo": "Explore sinais de seleção de ações e avalie ou compare o desempenho histórico.",
+      "optionsLab": "Monte estratégias de opções, explore ganhos e riscos e consulte cadeias de opções dos EUA.",
+      "correlation": "Compare como os ativos se movimentam juntos.",
+      "scheduled": "Repita uma pesquisa em horários definidos.",
+      "runtime": "Confira conexões de corretoras e o estado de execução das operações.",
+      "settings": "Configure modelos, fontes de dados e conexões de corretoras."
+    },
+    "instructions": {
+      "reports": "Primeiro peça ao assistente um backtest de uma estratégia e abra os resultados aqui. Baixe PDFs e documentos gerados no chat na conversa original.",
+      "portfolio": "Adicione e habilite uma fonte de conta e atualize as posições. Esta página resume os dados das contas em modo somente leitura.",
+      "alphaZoo": "Leia a definição do fator e escolha mercado e período para avaliar ou comparar sinais. Valide os candidatos com um backtest.",
+      "optionsLab": "Escolha uma predefinição ou adicione pernas de opções e ajuste preço, vencimento e volatilidade; os resultados se atualizam automaticamente. O código da cadeia real é separado das entradas da simulação.",
+      "correlation": "Informe pelo menos dois códigos de ativos, escolha o período e clique em Calcular.",
+      "scheduled": "Informe a instrução de pesquisa, escolha a frequência e salve. O agendador local deve estar habilitado para executar tarefas; a entrega também requer um canal configurado.",
+      "runtime": "Primeiro configure uma conexão de corretora em Configurações ou Carteira. As operações disponíveis dependem dos recursos da corretora e da sua autorização.",
+      "settings": "Configure um modelo para começar. Adicione dados ou conexões de corretoras conforme necessário; pesquisas com dados públicos de mercado não exigem conta em corretora."
+    }
+  },
   "layout": {
     "home": "Início",
-    "agent": "Agente",
-    "runtime": "Runtime",
-    "scheduled": "Agendado",
-    "reports": "Relatórios",
-    "portfolio": "Portfólio",
-    "alphaZoo": "Alpha Zoo",
+    "agent": "Assistente de pesquisa",
+    "runtime": "Estado das operações",
+    "scheduled": "Pesquisa agendada",
+    "reports": "Relatórios de backtest",
+    "portfolio": "Posições das contas",
+    "alphaZoo": "Pesquisa de fatores",
     "settings": "Configurações",
-    "correlation": "Matriz de Correlação",
-    "optionsLab": "Laboratório de opções",
+    "correlation": "Correlação de ativos",
+    "optionsLab": "Análise de opções",
     "sessions": "Sessões",
     "newChat": "Novo chat",
     "noSessions": "Ainda não há chats — pressione + para iniciar um.",
@@ -33,7 +65,8 @@
     "skipToMain": "Pular para o conteúdo principal",
     "sidebar": "Barra lateral Vibe-Trading",
     "mainNavigation": "Navegação principal",
-    "about": "Sobre"
+    "about": "Sobre",
+    "sessionsLoadFailed": "Não foi possível carregar as conversas."
   },
   "runtime": {
     "monitorBadge": "Monitor de Runtime",
@@ -260,7 +293,7 @@
     "unavailable": "Biblioteca de relatórios indisponível",
     "loadError": "Não foi possível carregar relatórios.",
     "emptyTitle": "Ainda não há relatórios",
-    "emptyBody": "Crie um backtest do Agente e retorne aqui para revisá-lo.",
+    "emptyBody": "Peça ao assistente de pesquisa um backtest e volte aqui para ver os resultados.",
     "noMatchesTitle": "Nenhum relatório correspondente",
     "noMatchesBody": "Ajuste sua consulta de pesquisa, filtro de status ou intervalo de datas.",
     "noPrompt": "Nenhum prompt registrado.",
@@ -274,9 +307,22 @@
   "connection": {
     "reconnecting": "Reconectando…",
     "disconnected": "Conexão perdida. Recarregue a página para reconectar.",
-    "reload": "Recarregar"
+    "reload": "Recarregar",
+    "retry": "Tentar conexão novamente",
+    "requestFailed": "Não foi possível conectar ao servidor API. Verifique se ele está em execução e se há conexão de rede.",
+    "requestTimeout": "A solicitação excedeu o tempo limite. Verifique a conexão com o servidor e tente novamente.",
+    "requestTimeoutMutation": "A solicitação excedeu o tempo limite. O servidor ainda pode estar processando; verifique o estado atual antes de tentar novamente."
   },
   "welcome": {
+    "tasks": {
+      "research": "Pesquisar uma ação",
+      "backtest": "Testar uma estratégia",
+      "portfolio": "Revisar minhas posições",
+      "hint": "Os exemplos preenchem a mensagem. Edite o código ou a estratégia antes de enviar.",
+      "researchPrompt": "Pesquise AAPL com os dados atuais disponíveis: resuma o negócio, os resultados financeiros recentes e os principais riscos. Informe fontes, datas e informações ausentes.",
+      "backtestPrompt": "Faça um backtest da estratégia de médias móveis de 20/60 dias de AAPL no último ano. Compare retorno e quedas com comprar e manter, incluindo custos de negociação. Apenas pesquisa.",
+      "portfolioPrompt": "Resuma minhas contas conectadas e posições, concentração e riscos da carteira. Se não houver conta conectada, explique primeiro como configurar uma. Não envie nem altere ordens."
+    },
     "categories": {
       "multiMarketBacktest": "Backtest em múltiplos mercados",
       "researchAnalysis": "Pesquisa e Análise",

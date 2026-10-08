@@ -10,6 +10,15 @@ For general project setup (`pip install -e ".[dev]"`, dev servers,
 `pytest --ignore=agent/tests/e2e_backtest`), see the README. For bug reports
 and feature requests, use the GitHub issue templates.
 
+The Web UI bounds API requests (including reading the response body) to two
+minutes by default. Set `VITE_API_TIMEOUT_MS` in `frontend/.env.local` before
+starting Vite or building the frontend to change this limit. Conversation-list
+requests use at most 15 seconds so an unavailable backend shows a connection
+error and a retry action promptly. Timed-out writes are never retried
+automatically: the server may still be processing them, so check the current
+state before repeating an action. These limits do not interrupt an accepted
+agent run or its SSE stream.
+
 For AI-assisted or automation-assisted contributions, also see
 [`AGENT_CONTRIBUTOR_GUIDE.md`](AGENT_CONTRIBUTOR_GUIDE.md). It summarizes safe
 local checks, higher-risk broker/MCP/credential surfaces, and the expected PR

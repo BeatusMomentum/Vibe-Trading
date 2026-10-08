@@ -7,17 +7,49 @@
     "noCorrelationData": "Elige al menos dos símbolos para comparar",
     "noEquityData": "Aún no hay curva de valor de cuenta — ejecuta primero un backtest"
   },
+  "navigation": {
+    "menu": "Explorar funciones",
+    "close": "Cerrar menú de funciones",
+    "groups": {
+      "research": "Investigación habitual",
+      "analysis": "Análisis especializado",
+      "automation": "Automatización y ajustes"
+    },
+    "howTo": "Cómo usar {{feature}}",
+    "startResearch": "Empieza con el asistente de investigación",
+    "descriptions": {
+      "agent": "Plantea una pregunta de investigación o describe una estrategia con tus palabras.",
+      "reports": "Consulta y compara backtests terminados.",
+      "portfolio": "Consulta los saldos y posiciones de las cuentas conectadas.",
+      "alphaZoo": "Explora señales de selección de acciones y evalúa o compara su rendimiento histórico.",
+      "optionsLab": "Construye estrategias de opciones, explora beneficios y riesgos y consulta cadenas de opciones de EE. UU.",
+      "correlation": "Compara cómo se mueven los activos entre sí.",
+      "scheduled": "Repite una investigación según un horario.",
+      "runtime": "Comprueba conexiones de brókeres y el estado de ejecución de operaciones.",
+      "settings": "Configura modelos, fuentes de datos y conexiones de brókeres."
+    },
+    "instructions": {
+      "reports": "Primero pide al asistente un backtest de una estrategia y abre aquí sus resultados. Descarga los PDF y documentos generados en el chat desde la conversación original.",
+      "portfolio": "Añade y activa una fuente de cuenta y actualiza las posiciones. Esta página resume los datos de las cuentas en modo de solo lectura.",
+      "alphaZoo": "Lee la definición del factor y elige mercado y fechas para evaluar o comparar señales. Valida las candidatas con un backtest.",
+      "optionsLab": "Elige un preajuste o añade patas de opciones y ajusta precio, vencimiento y volatilidad; los resultados se actualizan automáticamente. El símbolo de la cadena real es independiente de la simulación.",
+      "correlation": "Introduce al menos dos símbolos de activos, elige el período y pulsa Calcular.",
+      "scheduled": "Introduce la instrucción de investigación, elige la frecuencia y guarda. El programador local debe estar activado para ejecutar tareas; el envío requiere un canal configurado.",
+      "runtime": "Primero configura una conexión de bróker en Ajustes o Cartera. Las operaciones disponibles dependen de sus capacidades y de tu autorización.",
+      "settings": "Configura un modelo para empezar. Añade datos o conexiones de brókeres según lo necesites; investigar datos públicos de mercado no requiere una cuenta de bróker."
+    }
+  },
   "layout": {
     "home": "Inicio",
-    "agent": "Agente",
-    "runtime": "Runtime",
-    "scheduled": "Programado",
-    "reports": "Informes",
-    "portfolio": "Cartera",
-    "alphaZoo": "Alpha Zoo",
+    "agent": "Asistente de investigación",
+    "runtime": "Estado de operaciones",
+    "scheduled": "Investigación programada",
+    "reports": "Informes de backtest",
+    "portfolio": "Posiciones de cuentas",
+    "alphaZoo": "Investigación de factores",
     "settings": "Configuración",
-    "correlation": "Matriz de correlación",
-    "optionsLab": "Laboratorio de opciones",
+    "correlation": "Correlación de activos",
+    "optionsLab": "Análisis de opciones",
     "sessions": "Sesiones",
     "newChat": "Nuevo chat",
     "noSessions": "Aún no hay chats — pulsa + para empezar uno",
@@ -33,7 +65,8 @@
     "skipToMain": "Saltar al contenido principal",
     "sidebar": "Barra lateral de Vibe-Trading",
     "mainNavigation": "Navegación principal",
-    "about": "Acerca de"
+    "about": "Acerca de",
+    "sessionsLoadFailed": "No se pueden cargar las conversaciones."
   },
   "runtime": {
     "monitorBadge": "Monitor de Runtime",
@@ -260,7 +293,7 @@
     "unavailable": "Biblioteca de informes no disponible",
     "loadError": "No se pudieron cargar los informes.",
     "emptyTitle": "Aún no hay informes",
-    "emptyBody": "Crea un backtest desde Agente y vuelve aquí para revisarlo.",
+    "emptyBody": "Pide al asistente de investigación un backtest y vuelve aquí para revisar los resultados.",
     "noMatchesTitle": "No hay informes que coincidan",
     "noMatchesBody": "Ajusta tu búsqueda, el filtro de estado o el rango de fechas.",
     "noPrompt": "No se registró ningún prompt.",
@@ -274,9 +307,22 @@
   "connection": {
     "reconnecting": "Reconectando…",
     "disconnected": "Se perdió la conexión. Recarga la página para reconectar.",
-    "reload": "Recargar"
+    "reload": "Recargar",
+    "retry": "Reintentar conexión",
+    "requestFailed": "No se puede conectar con el servidor API. Comprueba que esté en funcionamiento y que haya conexión de red.",
+    "requestTimeout": "La solicitud agotó el tiempo de espera. Comprueba la conexión con el servidor y vuelve a intentarlo.",
+    "requestTimeoutMutation": "La solicitud agotó el tiempo de espera. El servidor podría seguir procesándola; comprueba el estado actual antes de reintentar."
   },
   "welcome": {
+    "tasks": {
+      "research": "Investigar una acción",
+      "backtest": "Probar una estrategia",
+      "portfolio": "Revisar mis posiciones",
+      "hint": "Los ejemplos rellenan el mensaje. Edita el símbolo o la estrategia antes de enviarlo.",
+      "researchPrompt": "Investiga AAPL con los datos actuales disponibles: resume su negocio, resultados financieros recientes y riesgos principales. Indica fuentes, fechas e información que falta.",
+      "backtestPrompt": "Haz un backtest de una estrategia de medias móviles de 20/60 días en AAPL durante el último año. Compara rentabilidad y caídas con comprar y mantener e incluye costes de negociación. Solo investigación.",
+      "portfolioPrompt": "Resume mis cuentas conectadas y posiciones, su concentración y riesgos de cartera. Si no hay cuentas conectadas, explica primero cómo configurarlas. No envíes ni modifiques órdenes."
+    },
     "categories": {
       "multiMarketBacktest": "Backtest de acciones A",
       "researchAnalysis": "Investigación y análisis",
